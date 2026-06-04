@@ -383,6 +383,10 @@
 
     let cloudReady = false;
     let cloudApplying = false;
+    let cloudDirty = false;
+    let cloudSaving = false;
+    let cloudSaveTimer = null;
+    let lastFloatingSaveAt = 0;
 
     const ADMIN_MENU = [
       "Dashboard",
@@ -636,6 +640,13 @@
 
     async function saveCloudState() {
       if (cloudApplying) return true;
+      if (cloudSaving) {
+        cloudDirty = true;
+        return true;
+      }
+
+      cloudSaving = true;
+      cloudDirty = false;
       const payload = statePayload();
       try {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(CLOUD_STATE_KEY)}`, {
@@ -652,16 +663,36 @@
           });
           if (!insertResponse.ok) throw new Error("Supabase insert failed " + insertResponse.status);
         }
+        cloudSaving = false;
+        if (cloudDirty) queueCloudSave(300);
         return true;
       } catch (error) {
         console.warn("No se pudo guardar en Supabase", error);
+        cloudSaving = false;
+        cloudDirty = true;
+        queueCloudSave(5000);
         return false;
       }
     }
 
-    function queueCloudSave() {
+    function queueCloudSave(delay = 800) {
       if (cloudApplying) return;
-      saveCloudState();
+      cloudDirty = true;
+      if (cloudSaveTimer) clearTimeout(cloudSaveTimer);
+      cloudSaveTimer = setTimeout(() => {
+        saveCloudState();
+      }, delay);
+    }
+
+    function saveBeforeExit() {
+      if (cloudApplying) return;
+      const payload = statePayload();
+      fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(CLOUD_STATE_KEY)}`, {
+        method: "PATCH",
+        headers: cloudHeaders({ Prefer: "return=minimal" }),
+        body: JSON.stringify({ data: payload }),
+        keepalive: true
+      }).catch(() => {});
     }
 
     function saveSession(targetPage, clientId = null) {
@@ -2098,6 +2129,10 @@
       });
 
       updateFloatingPnl();
+      if (positions.length && Date.now() - lastFloatingSaveAt > 5000) {
+        lastFloatingSaveAt = Date.now();
+        save();
+      }
 
       if (page !== "login") {
         const priceNode = document.querySelector(".price");
@@ -2173,6 +2208,13 @@
       render();
     });
     setInterval(tick, 1000);
+    setInterval(() => {
+      if (cloudDirty || positions.length) queueCloudSave(100);
+    }, 15000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") saveBeforeExit();
+    });
+    window.addEventListener("beforeunload", saveBeforeExit);
   </script>
 </body>
 </html>
