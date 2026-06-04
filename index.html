@@ -467,6 +467,7 @@
     }
 
     function totalPnl() {
+      updateFloatingPnl();
       return positions.reduce((sum, item) => sum + (item.pnl || 0), 0);
     }
 
@@ -514,8 +515,28 @@
       return 1;
     }
 
+    function contractSizeFor(symbol) {
+      if (symbol.includes("XAU")) return 100;
+      if (symbol.includes("XAG")) return 5000;
+      if (symbol.includes("/")) return 100000;
+      return 1;
+    }
+
     function units(lots) {
       return Number(lots || 0) * contractSize();
+    }
+
+    function floatingPnl(position) {
+      const current = prices[position.symbol] || position.open || 0;
+      const direction = position.side === "SELL" ? -1 : 1;
+      return (current - Number(position.open || 0)) * direction * Number(position.lots || 0) * contractSizeFor(position.symbol);
+    }
+
+    function updateFloatingPnl() {
+      positions.forEach((position) => {
+        if (position.status === "Pendiente") return;
+        position.pnl = floatingPnl(position);
+      });
     }
 
     function requiredMargin(lots, entryPrice) {
@@ -1949,6 +1970,7 @@
 
       if (tab === "open") {
         $("tabOpen").classList.add("active");
+        updateFloatingPnl();
         box.innerHTML = createTable(
           positions.map((item) => [
             item.symbol,
@@ -1957,12 +1979,14 @@
             item.orderType,
             item.status,
             fmt(item.open),
+            fmt(prices[item.symbol] || item.open),
             item.sl || "-",
             item.tp || "-",
             "$" + item.margin.toFixed(2),
+            `<span style="color:${item.pnl >= 0 ? "#00d4a0" : "#f05e5e"}">$${item.pnl.toFixed(2)}</span>`,
             `<button class="btn red" data-close="${item.id}">Cerrar</button>`
           ]),
-          ["Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "SL", "TP", "Margen", ""]
+          ["Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "Precio actual", "SL", "TP", "Margen", "P/L flotante", ""]
         );
       }
 
@@ -2073,9 +2097,12 @@
         });
       });
 
+      updateFloatingPnl();
+
       if (page !== "login") {
         const priceNode = document.querySelector(".price");
         if (priceNode) priceNode.textContent = fmt(price());
+        if (tab === "open") renderTabs();
         drawChart();
       }
     }
