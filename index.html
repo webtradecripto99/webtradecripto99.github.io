@@ -377,6 +377,12 @@
     const DEPOSIT_STATUSES = ["Pendiente", "Confirmado", "Rechazado"];
     const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
     const SESSION_MS = 15 * 60 * 1000;
+    const SUPABASE_URL = "https://syvnewyeuyovxoyngick.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_3PylYN-hIJqnFIx8HQsj8A_3qr2q6Qs";
+    const CLOUD_STATE_KEY = "main";
+
+    let cloudReady = false;
+    let cloudApplying = false;
 
     const ADMIN_MENU = [
       "Dashboard",
@@ -521,6 +527,7 @@
         "webtrade_inline_v3",
         JSON.stringify({ balance, positions, closed, money, tf })
       );
+      queueCloudSave();
     }
 
     function load() {
@@ -536,6 +543,101 @@
       } catch (error) {
         console.warn("No se pudo cargar estado local", error);
       }
+    }
+
+    function cloudHeaders(extra = {}) {
+      return {
+        apikey: SUPABASE_KEY,
+        Authorization: "Bearer " + SUPABASE_KEY,
+        "Content-Type": "application/json",
+        ...extra
+      };
+    }
+
+    function statePayload() {
+      if (!adminClients.length) loadAdminClients();
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      if (!adminDeposits.length) loadDeposits();
+
+      return {
+        balance,
+        positions,
+        closed,
+        money,
+        tf,
+        adminClients,
+        adminTradingAccounts,
+        adminDeposits
+      };
+    }
+
+    function applyCloudData(data) {
+      if (!data || typeof data !== "object") return;
+      cloudApplying = true;
+
+      balance = Number(data.balance || balance || 1250);
+      positions = Array.isArray(data.positions) ? data.positions : positions;
+      closed = Array.isArray(data.closed) ? data.closed : closed;
+      money = Array.isArray(data.money) ? data.money : money;
+      tf = data.tf || tf;
+      adminClients = Array.isArray(data.adminClients) ? data.adminClients : adminClients;
+      adminTradingAccounts = Array.isArray(data.adminTradingAccounts) ? data.adminTradingAccounts : adminTradingAccounts;
+      adminDeposits = Array.isArray(data.adminDeposits) ? data.adminDeposits : adminDeposits;
+
+      localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
+      localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
+      localStorage.setItem("webtrade_admin_trading_accounts_v1", JSON.stringify(adminTradingAccounts));
+      localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
+
+      cloudApplying = false;
+      cloudReady = true;
+    }
+
+    async function loadCloudState() {
+      try {
+        const response = await fetch(
+          `${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(CLOUD_STATE_KEY)}&select=data`,
+          { headers: cloudHeaders() }
+        );
+        if (!response.ok) throw new Error("Supabase load failed " + response.status);
+
+        const rows = await response.json();
+        if (rows && rows[0] && rows[0].data && Object.keys(rows[0].data).length) {
+          applyCloudData(rows[0].data);
+        } else {
+          cloudReady = true;
+          await saveCloudState();
+        }
+      } catch (error) {
+        console.warn("No se pudo sincronizar con Supabase", error);
+      }
+    }
+
+    async function saveCloudState() {
+      if (cloudApplying) return;
+      const payload = statePayload();
+      try {
+        const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(CLOUD_STATE_KEY)}`, {
+          method: "PATCH",
+          headers: cloudHeaders({ Prefer: "return=minimal" }),
+          body: JSON.stringify({ data: payload })
+        });
+
+        if (!response.ok) {
+          await fetch(`${SUPABASE_URL}/rest/v1/app_state`, {
+            method: "POST",
+            headers: cloudHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
+            body: JSON.stringify({ key: CLOUD_STATE_KEY, data: payload })
+          });
+        }
+      } catch (error) {
+        console.warn("No se pudo guardar en Supabase", error);
+      }
+    }
+
+    function queueCloudSave() {
+      if (cloudApplying) return;
+      saveCloudState();
     }
 
     function saveSession(targetPage, clientId = null) {
@@ -584,9 +686,10 @@
       }
     }
 
-    function login(requiredRole = null) {
+    async function login(requiredRole = null) {
       const user = $("u").value.trim().toLowerCase();
       const pass = $("p").value.trim();
+      if (!cloudReady) await loadCloudState();
       loadAdminClients();
       const clientByUser = adminClients.find((client) =>
         String(client.accessUser || "").trim().toLowerCase() === user
@@ -730,6 +833,7 @@
 
     function saveAdminClients() {
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
+      queueCloudSave();
     }
 
     function selectedClient() {
@@ -855,6 +959,7 @@
 
     function saveTradingAccounts() {
       localStorage.setItem("webtrade_admin_trading_accounts_v1", JSON.stringify(adminTradingAccounts));
+      queueCloudSave();
     }
 
     function selectedTradingAccount() {
@@ -953,6 +1058,7 @@
 
     function saveDeposits() {
       localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
+      queueCloudSave();
     }
 
     function depositFormData() {
@@ -2013,6 +2119,10 @@
     load();
     restoreSession();
     render();
+    loadCloudState().then(() => {
+      restoreSession();
+      render();
+    });
     setInterval(tick, 1000);
   </script>
 </body>
