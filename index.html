@@ -1040,6 +1040,46 @@
       return adminTradingAccounts.find((account) => account.id === selectedTradingAccountId) || adminTradingAccounts[0];
     }
 
+    function currentTradingAccount() {
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      const client = loggedClient();
+
+      if (client) {
+        return adminTradingAccounts.find((account) => account.client === client.name && account.active === "Activa")
+          || adminTradingAccounts.find((account) => account.client === client.name)
+          || selectedTradingAccount();
+      }
+
+      return selectedTradingAccount();
+    }
+
+    function accountForPosition(position) {
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      const client = loggedClient();
+
+      return adminTradingAccounts.find((account) => account.id === position.accountId)
+        || (client ? adminTradingAccounts.find((account) => account.client === client.name) : null)
+        || selectedTradingAccount();
+    }
+
+    function applyClosedPnlToTradingAccount(position) {
+      const account = accountForPosition(position);
+      if (!account) return;
+
+      const pnl = Number(position.pnl || 0);
+      const releasedMargin = Number(position.margin || 0);
+      const nextBalance = Number(account.balance || 0) + pnl;
+      const nextUsedMargin = Math.max(0, Number(account.usedMargin || 0) - releasedMargin);
+      const nextEquity = nextBalance;
+
+      account.balance = Number(nextBalance.toFixed(2));
+      account.equity = Number(nextEquity.toFixed(2));
+      account.usedMargin = Number(nextUsedMargin.toFixed(2));
+      account.freeMargin = Number(Math.max(0, nextEquity - nextUsedMargin).toFixed(2));
+      account.lastUpdate = new Date().toLocaleString();
+      saveTradingAccounts();
+    }
+
     function marginPercent(account) {
       const used = Number(account?.usedMargin || 0);
       const equityValue = Number(account?.equity || 0);
@@ -1973,8 +2013,14 @@
         return;
       }
 
+      const tradingAccount = currentTradingAccount();
+      const client = loggedClient();
+
       positions.unshift({
         id: Date.now(),
+        accountId: tradingAccount?.id || null,
+        clientId: client?.id || null,
+        clientName: client?.name || tradingAccount?.client || "Sin cliente",
         symbol: asset,
         side,
         lots,
@@ -2059,7 +2105,9 @@
       if (index < 0) return;
 
       const item = positions.splice(index, 1)[0];
+      item.pnl = Number(floatingPnl(item).toFixed(2));
       closed.unshift({ ...item, time: new Date().toLocaleString() });
+      applyClosedPnlToTradingAccount(item);
       updateLoggedClientBalance(accountBalance() + item.pnl);
       save();
       tab = "closed";
