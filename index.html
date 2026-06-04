@@ -614,7 +614,7 @@
     }
 
     async function saveCloudState() {
-      if (cloudApplying) return;
+      if (cloudApplying) return true;
       const payload = statePayload();
       try {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/app_state?key=eq.${encodeURIComponent(CLOUD_STATE_KEY)}`, {
@@ -624,14 +624,17 @@
         });
 
         if (!response.ok) {
-          await fetch(`${SUPABASE_URL}/rest/v1/app_state`, {
+          const insertResponse = await fetch(`${SUPABASE_URL}/rest/v1/app_state`, {
             method: "POST",
             headers: cloudHeaders({ Prefer: "resolution=merge-duplicates,return=minimal" }),
             body: JSON.stringify({ key: CLOUD_STATE_KEY, data: payload })
           });
+          if (!insertResponse.ok) throw new Error("Supabase insert failed " + insertResponse.status);
         }
+        return true;
       } catch (error) {
         console.warn("No se pudo guardar en Supabase", error);
+        return false;
       }
     }
 
@@ -864,10 +867,20 @@
       };
     }
 
-    function saveClientFromForm() {
+    async function saveClientFromForm() {
+      const saveButton = $("saveClientBtn");
+      if (saveButton) {
+        saveButton.disabled = true;
+        saveButton.textContent = "Guardando...";
+      }
+
       const data = clientFormData();
       if (!data.name || !data.email) {
         alert("Nombre y email son obligatorios.");
+        if (saveButton) {
+          saveButton.disabled = false;
+          saveButton.textContent = "Guardar / Editar";
+        }
         return;
       }
 
@@ -883,6 +896,15 @@
 
       selectedClientId = data.id;
       saveAdminClients();
+      const savedInCloud = await saveCloudState();
+      if (!savedInCloud) {
+        alert("El cliente se guardó en este navegador, pero no se pudo sincronizar con Supabase. Revisa internet o Supabase.");
+        if (saveButton) {
+          saveButton.disabled = false;
+          saveButton.textContent = "Guardar / Editar";
+        }
+        return;
+      }
       renderAdmin();
     }
 
