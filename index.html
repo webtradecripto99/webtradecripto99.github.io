@@ -1,0 +1,2021 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WebTrade CRM</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #060d1a;
+      color: #c5d0e8;
+      font-family: "Courier New", monospace;
+    }
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .top {
+      background: #0b1525;
+      border-bottom: 1px solid #1a2840;
+      padding: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .main {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .side {
+      width: 220px;
+      background: #050b16;
+      border-right: 1px solid #1a2840;
+      overflow: auto;
+      flex-shrink: 0;
+    }
+    .right {
+      width: 270px;
+      background: #050b16;
+      border-left: 1px solid #1a2840;
+      overflow: auto;
+      flex-shrink: 0;
+    }
+    .content {
+      flex: 1;
+      padding: 12px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .item {
+      padding: 11px;
+      border-bottom: 1px solid #0d1525;
+      cursor: pointer;
+      color: #5a6e8a;
+    }
+    .item:hover { background: #081827; }
+    .item.active {
+      background: #0c1e35;
+      color: #63b3ed;
+    }
+    .panel {
+      background: #08111e;
+      border: 1px solid #1a2840;
+      padding: 12px;
+    }
+    .btn {
+      background: transparent;
+      border: 1px solid #1a2840;
+      color: #3d546e;
+      padding: 7px 9px;
+      cursor: pointer;
+      margin: 2px;
+      font-family: inherit;
+    }
+    .btn:hover { background: #0c1e35; }
+    .green { border-color: #00d4a0; color: #00d4a0; }
+    .red { border-color: #f05e5e; color: #f05e5e; }
+    .blue { border-color: #63b3ed; color: #63b3ed; }
+    .yellow { border-color: #f6ad55; color: #f6ad55; }
+    .input {
+      width: 100%;
+      background: #0d1a2a;
+      border: 1px solid #1a2840;
+      color: #c5d0e8;
+      padding: 8px;
+      font-family: inherit;
+    }
+    .login {
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at top, #0b1f35, #050b16 70%);
+    }
+    .metric {
+      display: inline-block;
+      text-align: center;
+      margin: 0 8px;
+    }
+    .metric small {
+      display: block;
+      color: #5a6e8a;
+    }
+    .chartBox {
+      height: 500px;
+      background: #08111e;
+      border: 1px solid #1a2840;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+    .chartHead {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 8px;
+      gap: 10px;
+    }
+    .tfbar {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 7px;
+    }
+    .tfbtn {
+      font-size: 11px;
+      padding: 4px 7px;
+      border: 1px solid #1a2840;
+      background: #060d1a;
+      color: #5a6e8a;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .tfbtn.active {
+      border-color: #63b3ed;
+      color: #63b3ed;
+      background: #0c1e35;
+    }
+    .price {
+      color: #63b3ed;
+      font-size: 22px;
+      font-weight: bold;
+    }
+    .chartWrap {
+      flex: 1;
+      min-height: 390px;
+      background: #060d1a;
+      border: 1px solid #0d1525;
+      overflow: hidden;
+    }
+    #chartSvg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .tabs {
+      display: flex;
+      background: #08111e;
+      border: 1px solid #1a2840;
+      border-top: 0;
+    }
+    .tab {
+      padding: 8px 12px;
+      border: 0;
+      background: transparent;
+      color: #5a6e8a;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .tab.active {
+      color: #63b3ed;
+      border-bottom: 2px solid #63b3ed;
+    }
+    .scroll {
+      height: 155px;
+      overflow: auto;
+      background: #08111e;
+      border: 1px solid #1a2840;
+      border-top: 0;
+    }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .table td,
+    .table th {
+      border-bottom: 1px solid #0d1525;
+      padding: 6px;
+      font-size: 12px;
+      text-align: left;
+      white-space: nowrap;
+    }
+    .warn {
+      background: #1f1606;
+      border: 1px solid #f6ad55;
+      color: #f6ad55;
+      padding: 8px;
+      margin: 8px 0;
+      font-size: 11px;
+      line-height: 1.55;
+    }
+    .error {
+      background: #2a0d0d;
+      border: 1px solid #f05e5e;
+      color: #f05e5e;
+      padding: 8px;
+      margin: 8px 0;
+    }
+    .adminLayout {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .adminMenu {
+      width: 250px;
+      background: #050b16;
+      border-right: 1px solid #1a2840;
+      overflow: auto;
+      flex-shrink: 0;
+      padding: 8px;
+    }
+    .adminMenu button {
+      width: 100%;
+      display: block;
+      text-align: left;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid #0d1525;
+      color: #5a6e8a;
+      padding: 12px 10px;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .adminMenu button:hover,
+    .adminMenu button.active {
+      background: #0c1e35;
+      color: #63b3ed;
+    }
+    .adminContent {
+      flex: 1;
+      min-width: 0;
+      overflow: auto;
+      padding: 14px;
+    }
+    .adminGrid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .adminCard {
+      background: #08111e;
+      border: 1px solid #1a2840;
+      padding: 12px;
+    }
+    .adminCard small {
+      display: block;
+      color: #5a6e8a;
+      margin-bottom: 8px;
+    }
+    .adminCard b {
+      color: #c5d0e8;
+      font-size: 20px;
+    }
+    .status {
+      border: 1px solid #1a2840;
+      padding: 3px 6px;
+      font-size: 11px;
+      color: #63b3ed;
+    }
+    .adminTwoCol {
+      display: grid;
+      grid-template-columns: minmax(320px, 1.1fr) minmax(300px, 0.9fr);
+      gap: 12px;
+    }
+    .formGrid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(120px, 1fr));
+      gap: 10px;
+    }
+    .formGrid label {
+      display: block;
+      color: #5a6e8a;
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .detailList {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .detailRow {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid #0d1525;
+      padding-bottom: 7px;
+    }
+    .detailRow span:first-child {
+      color: #5a6e8a;
+    }
+    .miniActions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 10px 0;
+    }
+    @media (max-width: 900px) {
+      .main { display: block; overflow: auto; }
+      .side, .right { width: 100%; max-height: 260px; }
+      .adminLayout { display: block; }
+      .adminMenu { width: 100%; max-height: 330px; }
+      .adminGrid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .adminTwoCol,
+      .formGrid { grid-template-columns: 1fr; }
+      .app { height: auto; min-height: 100vh; }
+      .top { flex-wrap: wrap; }
+      .chartBox { height: 460px; }
+      .chartWrap { min-height: 350px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const app = $("app");
+
+    let page = "login";
+    let asset = "EUR/USD";
+    let side = "BUY";
+    let tab = "open";
+    let tf = "M5";
+    let adminSection = "Dashboard";
+    let selectedClientId = "WT-1001";
+    let selectedTradingAccountId = "MT5-50021";
+    let loggedClientId = null;
+    let sessionTimer = null;
+    let tickCount = 0;
+
+    let balance = 1250;
+    let positions = [];
+    let closed = [];
+    let money = [];
+    let adminClients = [];
+    let adminTradingAccounts = [];
+    let adminDeposits = [];
+
+    const ASSETS = [
+      ["EUR/USD", 1.0854],
+      ["GBP/USD", 1.2687],
+      ["USD/JPY", 151.34],
+      ["XAU/USD", 3042.15],
+      ["XAG/USD", 27.55],
+      ["BTC/USD", 84210],
+      ["ETH/USD", 3120],
+      ["US30", 38200],
+      ["NAS100", 18200],
+      ["AAPL", 185],
+      ["TSLA", 210]
+    ];
+
+    const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
+
+    const ADVISORS = ["Sin asignar", "Laura Vega", "Mario Ruiz", "Sofia Nieto", "Diego Ramos"];
+    const CLIENT_STATUSES = ["Activo", "Pendiente", "Bloqueado", "Suspendido"];
+    const KYC_STATUSES = ["No iniciado", "Pendiente", "Verificado", "Rechazado"];
+    const ACCESS_STATUSES = ["Habilitado", "Deshabilitado", "Bloqueado", "Pendiente activación"];
+    const ACCOUNT_TYPES = ["Standard", "Pro", "VIP", "Demo"];
+    const LEVERAGES = ["1:50", "1:100", "1:200", "1:500", "1:1000", "1:2000"];
+    const DEPOSIT_STATUSES = ["Pendiente", "Confirmado", "Rechazado"];
+    const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
+    const SESSION_MS = 15 * 60 * 1000;
+
+    const ADMIN_MENU = [
+      "Dashboard",
+      "Clientes",
+      "Cuentas trading",
+      "Depósitos",
+      "Retiros",
+      "Créditos / Bonos",
+      "Operaciones",
+      "CRM",
+      "Riesgo",
+      "Reportes",
+      "Configuración",
+      "Usuarios admin",
+      "Auditoría"
+    ];
+
+    const TICK_SPEED = {
+      M1: 3,
+      M5: 5,
+      M15: 8,
+      M30: 10,
+      H1: 12,
+      H4: 15,
+      D1: 18,
+      W1: 22
+    };
+
+    const VOLATILITY = {
+      M1: 0.0006,
+      M5: 0.001,
+      M15: 0.0015,
+      M30: 0.002,
+      H1: 0.003,
+      H4: 0.004,
+      D1: 0.006,
+      W1: 0.009
+    };
+
+    let prices = {};
+    let candles = {};
+
+    function chartKey(symbol = asset, timeframe = tf) {
+      return symbol + "_" + timeframe;
+    }
+
+    function initMarket() {
+      ASSETS.forEach((item) => {
+        const symbol = item[0];
+        const base = item[1];
+
+        if (!prices[symbol]) prices[symbol] = base;
+
+        TIMEFRAMES.forEach((timeframe) => {
+          const key = chartKey(symbol, timeframe);
+          if (!candles[key]) {
+            let price = base;
+            const arr = [];
+            const vol = VOLATILITY[timeframe];
+
+            for (let i = 0; i < 70; i++) {
+              const open = price;
+              const close = open + (Math.random() - 0.5) * base * vol;
+              const high = Math.max(open, close) + Math.random() * base * vol * 0.4;
+              const low = Math.min(open, close) - Math.random() * base * vol * 0.4;
+              arr.push({ open, high, low, close });
+              price = close;
+            }
+
+            candles[key] = arr;
+          }
+        });
+      });
+    }
+
+    function price() {
+      return prices[asset] || 1;
+    }
+
+    function fmt(value) {
+      return Number(value || 0).toFixed(Number(value) > 100 ? 2 : 5);
+    }
+
+    function totalPnl() {
+      return positions.reduce((sum, item) => sum + (item.pnl || 0), 0);
+    }
+
+    function usedMargin() {
+      return positions.reduce((sum, item) => sum + (item.margin || 0), 0);
+    }
+
+    function moneyValue(value) {
+      return Number(String(value || 0).replace(/[^0-9.-]/g, "")) || 0;
+    }
+
+    function moneyText(value) {
+      return "$" + Number(value || 0).toFixed(2);
+    }
+
+    function loggedClient() {
+      if (!adminClients.length) loadAdminClients();
+      return adminClients.find((client) => client.id === loggedClientId) || null;
+    }
+
+    function accountBalance() {
+      const client = loggedClient();
+      return client ? moneyValue(client.balance) : balance;
+    }
+
+    function updateLoggedClientBalance(nextBalance) {
+      const client = loggedClient();
+      if (!client) {
+        balance = nextBalance;
+        return;
+      }
+
+      client.balance = moneyText(nextBalance);
+      saveAdminClients();
+    }
+
+    function freeMargin() {
+      return accountBalance() + totalPnl() - usedMargin();
+    }
+
+    function contractSize() {
+      if (asset.includes("XAU")) return 100;
+      if (asset.includes("XAG")) return 5000;
+      if (asset.includes("/")) return 100000;
+      return 1;
+    }
+
+    function units(lots) {
+      return Number(lots || 0) * contractSize();
+    }
+
+    function requiredMargin(lots, entryPrice) {
+      return (units(lots) * Number(entryPrice || price())) / 2000;
+    }
+
+    function save() {
+      localStorage.setItem(
+        "webtrade_inline_v3",
+        JSON.stringify({ balance, positions, closed, money, tf })
+      );
+    }
+
+    function load() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_inline_v3"));
+        if (saved) {
+          balance = saved.balance || 1250;
+          positions = saved.positions || [];
+          closed = saved.closed || [];
+          money = saved.money || [];
+          tf = saved.tf || "M5";
+        }
+      } catch (error) {
+        console.warn("No se pudo cargar estado local", error);
+      }
+    }
+
+    function saveSession(targetPage, clientId = null) {
+      const expiresAt = Date.now() + SESSION_MS;
+      localStorage.setItem(
+        "webtrade_session_v1",
+        JSON.stringify({
+          page: targetPage,
+          loggedClientId: clientId,
+          expiresAt
+        })
+      );
+      scheduleSessionTimeout(expiresAt);
+    }
+
+    function clearSession() {
+      localStorage.removeItem("webtrade_session_v1");
+      loggedClientId = null;
+      if (sessionTimer) clearTimeout(sessionTimer);
+      sessionTimer = null;
+    }
+
+    function scheduleSessionTimeout(expiresAt) {
+      if (sessionTimer) clearTimeout(sessionTimer);
+      const ms = Math.max(0, expiresAt - Date.now());
+      sessionTimer = setTimeout(() => {
+        clearSession();
+        page = "login";
+        render();
+      }, ms);
+    }
+
+    function restoreSession() {
+      try {
+        const session = JSON.parse(localStorage.getItem("webtrade_session_v1"));
+        if (!session || Date.now() > session.expiresAt) {
+          clearSession();
+          return;
+        }
+
+        page = session.page === "admin" ? "admin" : "trade";
+        loggedClientId = session.loggedClientId || null;
+        scheduleSessionTimeout(session.expiresAt);
+      } catch (error) {
+        clearSession();
+      }
+    }
+
+    function login(requiredRole = null) {
+      const user = $("u").value.trim().toLowerCase();
+      const pass = $("p").value.trim();
+      loadAdminClients();
+      const clientByUser = adminClients.find((client) =>
+        String(client.accessUser || "").trim().toLowerCase() === user
+      );
+      const clientAccess = clientByUser && String(clientByUser.accessPass || "").trim() === pass
+        ? clientByUser
+        : null;
+
+      if (requiredRole === "admin" && user !== "admin" && user !== "administrador") {
+        $("err").style.display = "block";
+        $("err").textContent = "Escribe el usuario administrador";
+        return;
+      }
+
+      if (requiredRole === "cliente" && !clientAccess && user !== "cliente") {
+        $("err").style.display = "block";
+        $("err").textContent = clientByUser ? "Contraseña de cliente incorrecta" : "Escribe un usuario de cliente válido";
+        return;
+      }
+
+      if ((user === "admin" || user === "administrador") && pass === "123456") {
+        page = "admin";
+        adminSection = "Dashboard";
+        saveSession("admin");
+        render();
+      } else if (clientAccess) {
+        if (clientAccess.accessStatus !== "Habilitado" || clientAccess.portalAccess !== "Sí") {
+          $("err").style.display = "block";
+          $("err").textContent = "Acceso de cliente no habilitado. Revisa que esté Habilitado y con portal permitido.";
+          return;
+        }
+        loggedClientId = clientAccess.id;
+        selectedClientId = clientAccess.id;
+        page = "trade";
+        saveSession("trade", clientAccess.id);
+        render();
+      } else if (user === "cliente" && pass === "123456") {
+        loggedClientId = "WT-1001";
+        page = "trade";
+        saveSession("trade", loggedClientId);
+        render();
+      } else {
+        $("err").style.display = "block";
+        $("err").textContent = "Usuario o contraseña incorrectos";
+      }
+    }
+
+    function defaultAdminClients() {
+      return [
+        {
+          id: "WT-1001",
+          name: "Carlos Medina",
+          email: "carlos.medina@mail.com",
+          phone: "+52 55 1000 1122",
+          status: "Activo",
+          kyc: "Verificado",
+          balance: "$1,250.00",
+          risk: "Riesgo bajo",
+          advisor: "Laura Vega",
+          accessUser: "cliente",
+          accessPass: "123456",
+          accessStatus: "Habilitado",
+          portalAccess: "Sí",
+          forcePasswordChange: "No",
+          ip: "189.203.44.18",
+          device: "Chrome / Windows",
+          lastAccess: "Hoy 09:12",
+          history: ["Alta de cliente", "KYC aprobado", "Asesor asignado: Laura Vega"]
+        },
+        {
+          id: "WT-1002",
+          name: "Ana Torres",
+          email: "ana.torres@mail.com",
+          phone: "+52 33 2200 4411",
+          status: "Pendiente",
+          kyc: "Pendiente",
+          balance: "$0.00",
+          risk: "Revisión",
+          advisor: "Sin asignar",
+          accessUser: "ana.torres",
+          accessPass: "Temporal123",
+          accessStatus: "Pendiente activación",
+          portalAccess: "No",
+          forcePasswordChange: "Sí",
+          ip: "201.141.19.72",
+          device: "Safari / iPhone",
+          lastAccess: "Ayer 18:40",
+          history: ["Registro web", "Documentos KYC pendientes"]
+        },
+        {
+          id: "WT-1003",
+          name: "Luis Romero",
+          email: "luis.romero@mail.com",
+          phone: "+52 81 7788 1290",
+          status: "Activo",
+          kyc: "Verificado",
+          balance: "$4,820.40",
+          risk: "Riesgo medio",
+          advisor: "Mario Ruiz",
+          accessUser: "luis.romero",
+          accessPass: "Trading123",
+          accessStatus: "Habilitado",
+          portalAccess: "Sí",
+          forcePasswordChange: "No",
+          ip: "187.190.77.33",
+          device: "Firefox / macOS",
+          lastAccess: "Hoy 07:55",
+          history: ["Alta de cliente", "Deposito aprobado", "Operación NAS100 abierta"]
+        },
+        {
+          id: "WT-1004",
+          name: "Marta Salas",
+          email: "marta.salas@mail.com",
+          phone: "+52 55 9090 0031",
+          status: "Bloqueado",
+          kyc: "Rechazado",
+          balance: "$315.90",
+          risk: "Alerta AML",
+          advisor: "Sofia Nieto",
+          accessUser: "marta.salas",
+          accessPass: "Bloqueado",
+          accessStatus: "Bloqueado",
+          portalAccess: "No",
+          forcePasswordChange: "Sí",
+          ip: "45.170.12.91",
+          device: "Edge / Windows",
+          lastAccess: "Lunes 13:06",
+          history: ["Alerta AML", "Cuenta bloqueada", "Retiro detenido"]
+        }
+      ];
+    }
+
+    function loadAdminClients() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_clients_v1"));
+        adminClients = Array.isArray(saved) && saved.length ? saved : defaultAdminClients();
+      } catch (error) {
+        adminClients = defaultAdminClients();
+      }
+    }
+
+    function saveAdminClients() {
+      localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
+    }
+
+    function selectedClient() {
+      return adminClients.find((client) => client.id === selectedClientId) || adminClients[0];
+    }
+
+    function clientFormData() {
+      const id = $("clientId").value.trim() || "WT-" + Math.floor(1000 + Math.random() * 9000);
+      return {
+        id,
+        name: $("clientName").value.trim(),
+        email: $("clientEmail").value.trim(),
+        phone: $("clientPhone").value.trim(),
+        status: $("clientStatus").value,
+        kyc: $("clientKyc").value,
+        advisor: $("clientAdvisor").value,
+        balance: $("clientBalance").value.trim() || "$0.00",
+        risk: $("clientRisk").value.trim() || "Riesgo bajo",
+        accessUser: $("clientAccessUser").value.trim() || id.toLowerCase(),
+        accessPass: $("clientAccessPass").value.trim() || "Temporal123",
+        accessStatus: $("clientAccessStatus").value,
+        portalAccess: $("clientPortalAccess").checked ? "Sí" : "No",
+        forcePasswordChange: $("clientForcePassword").checked ? "Sí" : "No",
+        ip: $("clientIp").value.trim() || "Sin registro",
+        device: $("clientDevice").value.trim() || "Sin registro",
+        lastAccess: $("clientLastAccess").value.trim() || "Sin acceso",
+        history: selectedClient()?.id === id ? selectedClient().history : ["Cliente creado"]
+      };
+    }
+
+    function saveClientFromForm() {
+      const data = clientFormData();
+      if (!data.name || !data.email) {
+        alert("Nombre y email son obligatorios.");
+        return;
+      }
+
+      const index = adminClients.findIndex((client) => client.id === data.id);
+      const event = (index >= 0 ? "Datos editados" : "Cliente creado") + " - " + new Date().toLocaleString();
+      data.history = [event, ...(data.history || [])];
+
+      if (index >= 0) {
+        adminClients[index] = data;
+      } else {
+        adminClients.unshift(data);
+      }
+
+      selectedClientId = data.id;
+      saveAdminClients();
+      renderAdmin();
+    }
+
+    function selectClient(id) {
+      selectedClientId = id;
+      renderAdmin();
+    }
+
+    function defaultTradingAccounts() {
+      return [
+        {
+          id: "MT5-50021",
+          client: "Carlos Medina",
+          type: "Standard",
+          active: "Activa",
+          leverage: "1:2000",
+          balance: 1250,
+          equity: 1250,
+          usedMargin: 0.54,
+          freeMargin: 1249.46,
+          blockOpen: "No",
+          closeOnly: "No"
+        },
+        {
+          id: "MT5-50022",
+          client: "Luis Romero",
+          type: "Pro",
+          active: "Activa",
+          leverage: "1:1000",
+          balance: 4820.4,
+          equity: 4798.1,
+          usedMargin: 240.15,
+          freeMargin: 4557.95,
+          blockOpen: "No",
+          closeOnly: "No"
+        },
+        {
+          id: "DEMO-90210",
+          client: "Ana Torres",
+          type: "Demo",
+          active: "Activa",
+          leverage: "1:500",
+          balance: 10000,
+          equity: 10000,
+          usedMargin: 0,
+          freeMargin: 10000,
+          blockOpen: "No",
+          closeOnly: "No"
+        },
+        {
+          id: "MT5-50023",
+          client: "Marta Salas",
+          type: "VIP",
+          active: "Desactivada",
+          leverage: "1:100",
+          balance: 315.9,
+          equity: 315.9,
+          usedMargin: 0,
+          freeMargin: 315.9,
+          blockOpen: "Sí",
+          closeOnly: "Sí"
+        }
+      ];
+    }
+
+    function loadTradingAccounts() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_trading_accounts_v1"));
+        adminTradingAccounts = Array.isArray(saved) && saved.length ? saved : defaultTradingAccounts();
+      } catch (error) {
+        adminTradingAccounts = defaultTradingAccounts();
+      }
+    }
+
+    function saveTradingAccounts() {
+      localStorage.setItem("webtrade_admin_trading_accounts_v1", JSON.stringify(adminTradingAccounts));
+    }
+
+    function selectedTradingAccount() {
+      return adminTradingAccounts.find((account) => account.id === selectedTradingAccountId) || adminTradingAccounts[0];
+    }
+
+    function marginPercent(account) {
+      const used = Number(account?.usedMargin || 0);
+      const equityValue = Number(account?.equity || 0);
+      if (!used) return "Sin margen";
+      return ((equityValue / used) * 100).toFixed(2) + "%";
+    }
+
+    function tradingAccountFormData() {
+      return {
+        id: $("accountId").value.trim() || "MT5-" + Math.floor(10000 + Math.random() * 90000),
+        client: $("accountClient").value.trim() || "Sin cliente",
+        type: $("accountType").value,
+        active: $("accountActive").value,
+        leverage: $("accountLeverage").value,
+        balance: Number($("accountBalance").value || 0),
+        equity: Number($("accountEquity").value || 0),
+        usedMargin: Number($("accountUsedMargin").value || 0),
+        freeMargin: Number($("accountFreeMargin").value || 0),
+        blockOpen: $("accountBlockOpen").checked ? "Sí" : "No",
+        closeOnly: $("accountCloseOnly").checked ? "Sí" : "No"
+      };
+    }
+
+    function saveTradingAccountFromForm() {
+      const data = tradingAccountFormData();
+      const index = adminTradingAccounts.findIndex((account) => account.id === data.id);
+
+      if (index >= 0) {
+        adminTradingAccounts[index] = data;
+      } else {
+        adminTradingAccounts.unshift(data);
+      }
+
+      selectedTradingAccountId = data.id;
+      saveTradingAccounts();
+      renderAdmin();
+    }
+
+    function selectTradingAccount(id) {
+      selectedTradingAccountId = id;
+      renderAdmin();
+    }
+
+    function defaultDeposits() {
+      return [
+        {
+          id: "DEP-1001",
+          client: "Carlos Medina",
+          account: "MT5-50021",
+          amount: 1250,
+          method: "SPEI",
+          status: "Confirmado",
+          receipt: "spei-carlos-1001.pdf",
+          date: "Hoy 09:15",
+          history: ["Solicitud recibida", "Comprobante validado", "Depósito confirmado"]
+        },
+        {
+          id: "DEP-1002",
+          client: "Ana Torres",
+          account: "DEMO-90210",
+          amount: 500,
+          method: "Tarjeta",
+          status: "Pendiente",
+          receipt: "tarjeta-ana-1002.png",
+          date: "Hoy 10:20",
+          history: ["Solicitud recibida", "Pendiente de autorización"]
+        },
+        {
+          id: "DEP-1003",
+          client: "Marta Salas",
+          account: "MT5-50023",
+          amount: 315.9,
+          method: "Cripto",
+          status: "Rechazado",
+          receipt: "tx-marta-1003.txt",
+          date: "Ayer 16:42",
+          history: ["Solicitud recibida", "Alerta AML", "Depósito rechazado"]
+        }
+      ];
+    }
+
+    function loadDeposits() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_deposits_v1"));
+        adminDeposits = Array.isArray(saved) && saved.length ? saved : defaultDeposits();
+      } catch (error) {
+        adminDeposits = defaultDeposits();
+      }
+    }
+
+    function saveDeposits() {
+      localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
+    }
+
+    function depositFormData() {
+      const id = $("depositId").value.trim() || "DEP-" + Math.floor(1000 + Math.random() * 9000);
+      return {
+        id,
+        client: $("depositClient").value.trim() || "Sin cliente",
+        account: $("depositAccount").value.trim() || "Sin cuenta",
+        amount: Number($("depositAmount").value || 0),
+        method: $("depositMethod").value,
+        status: $("depositStatus").value,
+        receipt: $("depositReceipt").value.trim() || "Sin comprobante",
+        date: $("depositDate").value.trim() || new Date().toLocaleString(),
+        history: adminDeposits.find((item) => item.id === id)?.history || ["Depósito manual creado"]
+      };
+    }
+
+    function saveDepositFromForm() {
+      const data = depositFormData();
+      if (!data.amount || data.amount <= 0) {
+        alert("El monto del depósito debe ser mayor a cero.");
+        return;
+      }
+
+      const index = adminDeposits.findIndex((item) => item.id === data.id);
+      data.history = ["Depósito guardado - " + new Date().toLocaleString(), ...(data.history || [])];
+
+      if (index >= 0) {
+        adminDeposits[index] = data;
+      } else {
+        adminDeposits.unshift(data);
+      }
+
+      saveDeposits();
+      renderAdmin();
+    }
+
+    function setDepositStatus(id, status) {
+      const deposit = adminDeposits.find((item) => item.id === id);
+      if (!deposit) return;
+      deposit.status = status;
+      deposit.history = [`Estado actualizado a ${status} - ${new Date().toLocaleString()}`, ...(deposit.history || [])];
+      saveDeposits();
+      renderAdmin();
+    }
+
+    window.setDepositStatus = setDepositStatus;
+
+    function renderLogin() {
+      app.innerHTML = `
+        <div class="login">
+          <div class="panel" style="width:380px">
+            <h2 style="color:#00d4a0;text-align:center">FOREX ACCESS</h2>
+            <input id="u" class="input" placeholder="Usuario">
+            <br><br>
+            <input id="p" class="input" type="password" placeholder="Contraseña">
+            <div id="err" class="error" style="display:none">Credenciales incorrectas</div>
+            <br>
+            <button id="loginBtn" class="btn green" style="width:100%;padding:12px">ENTRAR</button>
+            <button id="adminBtn" class="btn blue" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO ADMINISTRADOR</button>
+            <button id="clientBtn" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO CLIENTE</button>
+            <p style="font-size:11px;color:#5a6e8a;text-align:center">Escribe usuario y contraseña antes de elegir el acceso · v-admin-3</p>
+          </div>
+        </div>`;
+
+      $("loginBtn").onclick = login;
+      $("adminBtn").onclick = () => login("admin");
+      $("clientBtn").onclick = () => login("cliente");
+      $("p").onkeydown = (event) => {
+        if (event.key === "Enter") login();
+      };
+    }
+
+    function render() {
+      if (page === "login") {
+        renderLogin();
+        return;
+      }
+
+      if (page === "admin") {
+        renderAdmin();
+        return;
+      }
+
+      const currentBalance = accountBalance();
+      const equity = currentBalance + totalPnl();
+      const margin = usedMargin();
+      const free = freeMargin();
+      const currentClient = loggedClient();
+
+      app.innerHTML = `
+        <div class="app">
+          <div class="top">
+            <div>
+              <b style="color:#00d4a0">WEBTRADE</b><br>
+              <small>${currentClient ? currentClient.name : "Cliente"}</small><br>
+              <button id="outBtn" class="btn red">CERRAR SESIÓN</button>
+            </div>
+
+            <div>
+              <button id="depBtn" class="btn green">+$ DEPÓSITO</button>
+              <button id="retBtn" class="btn yellow">-$ RETIRO</button>
+            </div>
+
+            <div>
+              ${[
+                ["Balance", currentBalance],
+                ["Equity", equity],
+                ["Margin", margin],
+                ["Free Margin", free],
+                ["P&L", totalPnl()]
+              ]
+                .map(
+                  ([label, value]) =>
+                    `<span class="metric"><small>${label}</small><b>$${value.toFixed(2)}</b></span>`
+                )
+                .join("")}
+            </div>
+          </div>
+
+          <div class="main">
+            <div class="side" id="assets"></div>
+
+            <div class="content">
+              <div class="chartBox">
+                <div class="chartHead">
+                  <div>
+                    <b>${asset}</b>
+                    <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica dinámica SVG</div>
+                    <div class="tfbar" id="tfbar"></div>
+                  </div>
+                  <div class="price">${fmt(price())}</div>
+                </div>
+
+                <div class="chartWrap">
+                  <svg id="chartSvg" viewBox="0 0 1000 390" preserveAspectRatio="none"></svg>
+                </div>
+              </div>
+
+              <div class="tabs">
+                <button id="tabOpen" class="tab">Abiertas</button>
+                <button id="tabClosed" class="tab">Cerradas</button>
+                <button id="tabMoney" class="tab">Dinero</button>
+              </div>
+              <div id="tabbox" class="scroll"></div>
+            </div>
+
+            <div class="right">
+              <div class="panel">
+                <h3>Nueva orden</h3>
+                <div style="display:flex;gap:6px">
+                  <button id="buyBtn" class="btn green" style="flex:1">BUY</button>
+                  <button id="sellBtn" class="btn red" style="flex:1">SELL</button>
+                </div>
+
+                <br>
+                <label>Tipo de orden</label>
+                <select id="otype" class="input">
+                  <option value="market">Tiempo de mercado</option>
+                  <option value="pending">Cuando llegue a precio</option>
+                </select>
+
+                <br><br>
+                <label>Precio entrada</label>
+                <input id="entry" class="input" type="number" value="${price()}">
+
+                <br><br>
+                <label>Lotes</label>
+                <input id="lots" class="input" type="number" step="0.01" value="0.01">
+
+                <br><br>
+                <label>Stop Loss</label>
+                <input id="sl" class="input" type="number" placeholder="Opcional">
+
+                <br><br>
+                <label>Take Profit</label>
+                <input id="tp" class="input" type="number" placeholder="Opcional">
+
+                <div id="oinfo" class="warn"></div>
+                <div id="oerr" class="error" style="display:none"></div>
+
+                <button id="execBtn" class="btn blue" style="width:100%;padding:10px">CONFIRMAR ${side}</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      $("outBtn").onclick = () => {
+        clearSession();
+        page = "login";
+        render();
+      };
+      $("depBtn").onclick = () => moneyForm("Depósito");
+      $("retBtn").onclick = () => moneyForm("Retiro");
+      $("buyBtn").onclick = () => {
+        side = "BUY";
+        render();
+      };
+      $("sellBtn").onclick = () => {
+        side = "SELL";
+        render();
+      };
+      $("execBtn").onclick = order;
+
+      ["otype", "entry", "lots", "sl", "tp"].forEach((id) => {
+        $(id).oninput = orderInfo;
+      });
+
+      $("tabOpen").onclick = () => {
+        tab = "open";
+        renderTabs();
+      };
+      $("tabClosed").onclick = () => {
+        tab = "closed";
+        renderTabs();
+      };
+      $("tabMoney").onclick = () => {
+        tab = "money";
+        renderTabs();
+      };
+
+      const tfbar = $("tfbar");
+      TIMEFRAMES.forEach((timeframe) => {
+        const button = document.createElement("button");
+        button.className = "tfbtn " + (timeframe === tf ? "active" : "");
+        button.textContent = timeframe;
+        button.onclick = () => {
+          tf = timeframe;
+          save();
+          render();
+        };
+        tfbar.appendChild(button);
+      });
+
+      const list = $("assets");
+      ASSETS.forEach((item) => {
+        const div = document.createElement("div");
+        div.className = "item " + (item[0] === asset ? "active" : "");
+        div.innerHTML = `${item[0]}<br><small>${fmt(prices[item[0]] || item[1])}</small>`;
+        div.onclick = () => {
+          asset = item[0];
+          render();
+        };
+        list.appendChild(div);
+      });
+
+      orderInfo();
+      drawChart();
+      renderTabs();
+    }
+
+    function renderAdmin() {
+      if (!adminClients.length) loadAdminClients();
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      if (!adminDeposits.length) loadDeposits();
+      const clients = adminClients;
+      const tradingAccounts = adminTradingAccounts;
+      const deposits = adminDeposits;
+      const pendingDeposits = deposits.filter((item) => item.status === "Pendiente");
+      const withdrawals = money.filter((item) => item.type === "Retiro");
+      const adminUsers = [
+        ["admin", "Super administrador", "Activo", "Hoy"],
+        ["risk.manager", "Riesgo", "Activo", "Ayer"],
+        ["support.crm", "CRM", "Activo", "Esta semana"]
+      ];
+      const audits = [
+        ["Login admin", "admin", new Date().toLocaleString(), "Correcto"],
+        ["Actualización de cliente", "support.crm", "Pendiente", "Registrado"],
+        ["Cambio de margen", "risk.manager", "Pendiente", "Requiere aprobación"]
+      ];
+
+      const metrics = [
+        ["Clientes", clients.length],
+        ["Cuentas trading", tradingAccounts.length],
+        ["Depósitos pendientes", pendingDeposits.length],
+        ["Retiros pendientes", withdrawals.length],
+        ["Operaciones abiertas", positions.length],
+        ["Balance clientes", "$" + balance.toFixed(2)],
+        ["Margen usado", "$" + usedMargin().toFixed(2)],
+        ["P&L flotante", "$" + totalPnl().toFixed(2)]
+      ];
+
+      app.innerHTML = `
+        <div class="app">
+          <div class="top">
+            <div>
+              <b style="color:#00d4a0">WEBTRADE ADMIN</b><br>
+              <button id="outBtn" class="btn red">CERRAR SESIÓN</button>
+            </div>
+            <div>
+              <button id="syncBtn" class="btn blue">SINCRONIZAR</button>
+              <button id="riskBtn" class="btn yellow">ALERTAS RIESGO</button>
+            </div>
+            <div>
+              <span class="metric"><small>Rol</small><b>Administrador</b></span>
+              <span class="metric"><small>Estado</small><b>Operativo</b></span>
+            </div>
+          </div>
+          <div class="adminLayout">
+            <div class="adminMenu" id="adminMenu"></div>
+            <div class="adminContent">
+              <h2 style="margin-top:0;color:#63b3ed">${adminSection}</h2>
+              <div id="adminBody"></div>
+            </div>
+          </div>
+        </div>`;
+
+      $("outBtn").onclick = () => {
+        clearSession();
+        page = "login";
+        render();
+      };
+      $("syncBtn").onclick = () => {
+        alert("Datos sincronizados en modo demostración.");
+      };
+      $("riskBtn").onclick = () => {
+        adminSection = "Riesgo";
+        renderAdmin();
+      };
+
+      const menu = $("adminMenu");
+      ADMIN_MENU.forEach((item) => {
+        const button = document.createElement("button");
+        button.textContent = item;
+        button.className = item === adminSection ? "active" : "";
+        button.onclick = () => {
+          adminSection = item;
+          renderAdmin();
+        };
+        menu.appendChild(button);
+      });
+
+      const body = $("adminBody");
+      if (adminSection === "Dashboard") {
+        body.innerHTML = `
+          <div class="adminGrid">
+            ${metrics.map(([label, value]) => `<div class="adminCard"><small>${label}</small><b>${value}</b></div>`).join("")}
+          </div>
+          <div class="panel">
+            <h3>Resumen operativo</h3>
+            ${createTable(
+              [
+                ["Depósitos", pendingDeposits.length, "Pendiente de autorización"],
+                ["Retiros", withdrawals.length, "Solicitud pendiente"],
+                ["Operaciones abiertas", positions.length, "$" + totalPnl().toFixed(2)],
+                ["Alertas de riesgo", 2, "Revisión manual"]
+              ],
+              ["Módulo", "Total", "Estado"]
+            )}
+          </div>`;
+      }
+
+      if (adminSection === "Clientes") {
+        const current = selectedClient() || clients[0];
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Gestión de clientes</h3>
+              <div class="miniActions">
+                <button id="newClientBtn" class="btn green">Crear cliente</button>
+                <button id="saveClientBtn" class="btn blue">Guardar / Editar</button>
+              </div>
+              <div class="formGrid">
+                <div>
+                  <label>ID cliente</label>
+                  <input id="clientId" class="input" value="${current?.id || ""}">
+                </div>
+                <div>
+                  <label>Nombre</label>
+                  <input id="clientName" class="input" value="${current?.name || ""}">
+                </div>
+                <div>
+                  <label>Email</label>
+                  <input id="clientEmail" class="input" value="${current?.email || ""}">
+                </div>
+                <div>
+                  <label>Teléfono</label>
+                  <input id="clientPhone" class="input" value="${current?.phone || ""}">
+                </div>
+                <div>
+                  <label>Estado del cliente</label>
+                  <select id="clientStatus" class="input">
+                    ${CLIENT_STATUSES.map((status) => `<option ${current?.status === status ? "selected" : ""}>${status}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Verificación KYC</label>
+                  <select id="clientKyc" class="input">
+                    ${KYC_STATUSES.map((kyc) => `<option ${current?.kyc === kyc ? "selected" : ""}>${kyc}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Asesor / Ejecutivo</label>
+                  <select id="clientAdvisor" class="input">
+                    ${ADVISORS.map((advisor) => `<option ${current?.advisor === advisor ? "selected" : ""}>${advisor}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Balance</label>
+                  <input id="clientBalance" class="input" value="${current?.balance || "$0.00"}">
+                </div>
+                <div>
+                  <label>Riesgo</label>
+                  <input id="clientRisk" class="input" value="${current?.risk || "Riesgo bajo"}">
+                </div>
+                <div>
+                  <label>Usuario de acceso</label>
+                  <input id="clientAccessUser" class="input" value="${current?.accessUser || ""}">
+                </div>
+                <div>
+                  <label>Contraseña de acceso</label>
+                  <input id="clientAccessPass" class="input" value="${current?.accessPass || ""}">
+                </div>
+                <div>
+                  <label>Estado del acceso</label>
+                  <select id="clientAccessStatus" class="input">
+                    ${ACCESS_STATUSES.map((status) => `<option ${current?.accessStatus === status ? "selected" : ""}>${status}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Permisos de portal</label>
+                  <label><input id="clientPortalAccess" type="checkbox" ${current?.portalAccess !== "No" ? "checked" : ""}> Permitir acceso del cliente</label>
+                </div>
+                <div>
+                  <label>Seguridad</label>
+                  <label><input id="clientForcePassword" type="checkbox" ${current?.forcePasswordChange === "Sí" ? "checked" : ""}> Forzar cambio de contraseña</label>
+                </div>
+                <div>
+                  <label>Último acceso</label>
+                  <input id="clientLastAccess" class="input" value="${current?.lastAccess || "Sin acceso"}">
+                </div>
+                <div>
+                  <label>IP</label>
+                  <input id="clientIp" class="input" value="${current?.ip || "Sin registro"}">
+                </div>
+                <div>
+                  <label>Dispositivo</label>
+                  <input id="clientDevice" class="input" value="${current?.device || "Sin registro"}">
+                </div>
+              </div>
+              <h3>Listado</h3>
+              ${createTable(
+                clients.map((client) => [
+                  `<button class="btn blue" data-client="${client.id}">${client.id}</button>`,
+                  client.name,
+                  client.status,
+                  client.kyc,
+                  client.advisor,
+                  client.accessUser || "-",
+                  client.accessStatus || "-",
+                  client.portalAccess || "No",
+                  client.balance,
+                  client.risk
+                ]),
+                ["ID", "Cliente", "Estado", "KYC", "Asesor", "Usuario", "Acceso", "Portal", "Balance", "Riesgo"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Ficha del cliente</h3>
+              <div class="detailList">
+                <div class="detailRow"><span>Cliente</span><b>${current?.name || "-"}</b></div>
+                <div class="detailRow"><span>Estado</span><b>${current?.status || "-"}</b></div>
+                <div class="detailRow"><span>KYC</span><b>${current?.kyc || "-"}</b></div>
+                <div class="detailRow"><span>Asesor</span><b>${current?.advisor || "-"}</b></div>
+                <div class="detailRow"><span>Usuario acceso</span><b>${current?.accessUser || "-"}</b></div>
+                <div class="detailRow"><span>Contraseña</span><b>${current?.accessPass || "-"}</b></div>
+                <div class="detailRow"><span>Estado acceso</span><b>${current?.accessStatus || "-"}</b></div>
+                <div class="detailRow"><span>Acceso portal</span><b>${current?.portalAccess || "No"}</b></div>
+                <div class="detailRow"><span>Cambio contraseña</span><b>${current?.forcePasswordChange || "No"}</b></div>
+                <div class="detailRow"><span>IP</span><b>${current?.ip || "-"}</b></div>
+                <div class="detailRow"><span>Dispositivo</span><b>${current?.device || "-"}</b></div>
+                <div class="detailRow"><span>Último acceso</span><b>${current?.lastAccess || "-"}</b></div>
+              </div>
+              <h3>Historial de actividad</h3>
+              ${createTable((current?.history || []).map((item, index) => [index + 1, item]), ["#", "Actividad"])}
+            </div>
+          </div>`;
+
+        $("newClientBtn").onclick = () => {
+          selectedClientId = "";
+          $("clientId").value = "WT-" + Math.floor(1000 + Math.random() * 9000);
+          $("clientName").value = "";
+          $("clientEmail").value = "";
+          $("clientPhone").value = "";
+          $("clientStatus").value = "Pendiente";
+          $("clientKyc").value = "No iniciado";
+          $("clientAdvisor").value = "Sin asignar";
+          $("clientBalance").value = "$0.00";
+          $("clientRisk").value = "Riesgo bajo";
+          $("clientAccessUser").value = "";
+          $("clientAccessPass").value = "Temporal123";
+          $("clientAccessStatus").value = "Habilitado";
+          $("clientPortalAccess").checked = true;
+          $("clientForcePassword").checked = true;
+          $("clientIp").value = "Sin registro";
+          $("clientDevice").value = "Sin registro";
+          $("clientLastAccess").value = "Sin acceso";
+        };
+        $("saveClientBtn").onclick = saveClientFromForm;
+        body.querySelectorAll("[data-client]").forEach((button) => {
+          button.onclick = () => selectClient(button.dataset.client);
+        });
+      }
+
+      if (adminSection === "Cuentas trading") {
+        const current = selectedTradingAccount() || tradingAccounts[0];
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Gestión de cuentas trading</h3>
+              <div class="miniActions">
+                <button id="newAccountBtn" class="btn green">Crear cuenta trading</button>
+                <button id="saveAccountBtn" class="btn blue">Guardar / Editar</button>
+              </div>
+              <div class="formGrid">
+                <div>
+                  <label>Cuenta</label>
+                  <input id="accountId" class="input" value="${current?.id || ""}">
+                </div>
+                <div>
+                  <label>Cliente</label>
+                  <input id="accountClient" class="input" value="${current?.client || ""}">
+                </div>
+                <div>
+                  <label>Estado</label>
+                  <select id="accountActive" class="input">
+                    <option ${current?.active === "Activa" ? "selected" : ""}>Activa</option>
+                    <option ${current?.active === "Desactivada" ? "selected" : ""}>Desactivada</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Tipo de cuenta</label>
+                  <select id="accountType" class="input">
+                    ${ACCOUNT_TYPES.map((type) => `<option ${current?.type === type ? "selected" : ""}>${type}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Apalancamiento</label>
+                  <select id="accountLeverage" class="input">
+                    ${LEVERAGES.map((leverage) => `<option ${current?.leverage === leverage ? "selected" : ""}>${leverage}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Balance</label>
+                  <input id="accountBalance" class="input" type="number" step="0.01" value="${current?.balance || 0}">
+                </div>
+                <div>
+                  <label>Equity</label>
+                  <input id="accountEquity" class="input" type="number" step="0.01" value="${current?.equity || 0}">
+                </div>
+                <div>
+                  <label>Margen usado</label>
+                  <input id="accountUsedMargin" class="input" type="number" step="0.01" value="${current?.usedMargin || 0}">
+                </div>
+                <div>
+                  <label>Margen libre</label>
+                  <input id="accountFreeMargin" class="input" type="number" step="0.01" value="${current?.freeMargin || 0}">
+                </div>
+                <div>
+                  <label>Restricción apertura</label>
+                  <label><input id="accountBlockOpen" type="checkbox" ${current?.blockOpen === "Sí" ? "checked" : ""}> Bloquear apertura de operaciones</label>
+                </div>
+                <div>
+                  <label>Modo cierre</label>
+                  <label><input id="accountCloseOnly" type="checkbox" ${current?.closeOnly === "Sí" ? "checked" : ""}> Permitir solo cierre de operaciones</label>
+                </div>
+              </div>
+              <h3>Listado de cuentas</h3>
+              ${createTable(
+                tradingAccounts.map((account) => [
+                  `<button class="btn blue" data-account="${account.id}">${account.id}</button>`,
+                  account.client,
+                  account.active,
+                  account.type,
+                  account.leverage,
+                  "$" + Number(account.balance || 0).toFixed(2),
+                  "$" + Number(account.equity || 0).toFixed(2),
+                  marginPercent(account),
+                  account.blockOpen,
+                  account.closeOnly
+                ]),
+                ["Cuenta", "Cliente", "Estado", "Tipo", "Apalancamiento", "Balance", "Equity", "% margen", "Bloq. apertura", "Solo cierre"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Resumen de cuenta</h3>
+              <div class="detailList">
+                <div class="detailRow"><span>Cuenta</span><b>${current?.id || "-"}</b></div>
+                <div class="detailRow"><span>Estado</span><b>${current?.active || "-"}</b></div>
+                <div class="detailRow"><span>Tipo</span><b>${current?.type || "-"}</b></div>
+                <div class="detailRow"><span>Apalancamiento</span><b>${current?.leverage || "-"}</b></div>
+                <div class="detailRow"><span>Balance</span><b>$${Number(current?.balance || 0).toFixed(2)}</b></div>
+                <div class="detailRow"><span>Equity</span><b>$${Number(current?.equity || 0).toFixed(2)}</b></div>
+                <div class="detailRow"><span>Margen usado</span><b>$${Number(current?.usedMargin || 0).toFixed(2)}</b></div>
+                <div class="detailRow"><span>Margen libre</span><b>$${Number(current?.freeMargin || 0).toFixed(2)}</b></div>
+                <div class="detailRow"><span>Porcentaje margen</span><b>${marginPercent(current)}</b></div>
+                <div class="detailRow"><span>Bloquear apertura</span><b>${current?.blockOpen || "No"}</b></div>
+                <div class="detailRow"><span>Solo cierre</span><b>${current?.closeOnly || "No"}</b></div>
+              </div>
+            </div>
+          </div>`;
+
+        $("newAccountBtn").onclick = () => {
+          selectedTradingAccountId = "";
+          $("accountId").value = "MT5-" + Math.floor(10000 + Math.random() * 90000);
+          $("accountClient").value = "";
+          $("accountActive").value = "Activa";
+          $("accountType").value = "Standard";
+          $("accountLeverage").value = "1:500";
+          $("accountBalance").value = "0";
+          $("accountEquity").value = "0";
+          $("accountUsedMargin").value = "0";
+          $("accountFreeMargin").value = "0";
+          $("accountBlockOpen").checked = false;
+          $("accountCloseOnly").checked = false;
+        };
+        $("saveAccountBtn").onclick = saveTradingAccountFromForm;
+        body.querySelectorAll("[data-account]").forEach((button) => {
+          button.onclick = () => selectTradingAccount(button.dataset.account);
+        });
+      }
+
+      if (adminSection === "Depósitos") {
+        const firstDeposit = deposits[0] || defaultDeposits()[0];
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Depósitos</h3>
+              <div class="miniActions">
+                <button id="newDepositBtn" class="btn green">Colocar depósito manual</button>
+                <button id="saveDepositBtn" class="btn blue">Guardar depósito</button>
+              </div>
+              <div class="formGrid">
+                <div>
+                  <label>ID depósito</label>
+                  <input id="depositId" class="input" value="${firstDeposit.id}">
+                </div>
+                <div>
+                  <label>Cliente</label>
+                  <input id="depositClient" class="input" value="${firstDeposit.client}">
+                </div>
+                <div>
+                  <label>Cuenta trading</label>
+                  <input id="depositAccount" class="input" value="${firstDeposit.account}">
+                </div>
+                <div>
+                  <label>Monto</label>
+                  <input id="depositAmount" class="input" type="number" step="0.01" value="${firstDeposit.amount}">
+                </div>
+                <div>
+                  <label>Método de pago</label>
+                  <select id="depositMethod" class="input">
+                    ${PAYMENT_METHODS.map((method) => `<option ${firstDeposit.method === method ? "selected" : ""}>${method}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Estado</label>
+                  <select id="depositStatus" class="input">
+                    ${DEPOSIT_STATUSES.map((status) => `<option ${firstDeposit.status === status ? "selected" : ""}>${status}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Comprobante</label>
+                  <input id="depositReceipt" class="input" value="${firstDeposit.receipt}">
+                </div>
+                <div>
+                  <label>Fecha</label>
+                  <input id="depositDate" class="input" value="${firstDeposit.date}">
+                </div>
+              </div>
+              <h3>Solicitudes de depósito</h3>
+              ${createTable(
+                deposits.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.method,
+                  item.status,
+                  item.receipt,
+                  item.date,
+                  `<button class="btn green" onclick="setDepositStatus('${item.id}', 'Confirmado')">Aprobar</button> <button class="btn red" onclick="setDepositStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Monto", "Método", "Estado", "Comprobante", "Fecha", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Historial de depósitos</h3>
+              ${createTable(
+                deposits.flatMap((item) => (item.history || []).map((event) => [item.id, item.client, item.status, event])),
+                ["ID", "Cliente", "Estado actual", "Evento"]
+              )}
+            </div>
+          </div>`;
+
+        $("newDepositBtn").onclick = () => {
+          $("depositId").value = "DEP-" + Math.floor(1000 + Math.random() * 9000);
+          $("depositClient").value = "";
+          $("depositAccount").value = "";
+          $("depositAmount").value = "0";
+          $("depositMethod").value = "Transferencia bancaria";
+          $("depositStatus").value = "Pendiente";
+          $("depositReceipt").value = "Sin comprobante";
+          $("depositDate").value = new Date().toLocaleString();
+        };
+        $("saveDepositBtn").onclick = saveDepositFromForm;
+      }
+
+      if (adminSection === "Retiros") {
+        body.innerHTML = `<div class="panel">${createTable(
+          withdrawals.map((item) => [item.type, "$" + item.amount.toFixed(2), item.status, item.time, '<span class="status">Revisar</span>']),
+          ["Tipo", "Monto", "Estado", "Fecha", "Acción"]
+        )}</div>`;
+      }
+
+      if (adminSection === "Créditos / Bonos") {
+        body.innerHTML = `<div class="panel">${createTable(
+          [
+            ["Bono bienvenida", "30%", "Disponible", "Automático"],
+            ["Crédito temporal", "$500.00", "Inactivo", "Manual"],
+            ["Cashback volumen", "5%", "Disponible", "Mensual"]
+          ],
+          ["Nombre", "Valor", "Estado", "Aplicación"]
+        )}</div>`;
+      }
+
+      if (adminSection === "Operaciones") {
+        body.innerHTML = `<div class="panel">${createTable(
+          positions.map((item) => [item.symbol, item.side, item.lots, item.status, fmt(item.open), "$" + item.pnl.toFixed(2)]),
+          ["Símbolo", "Lado", "Lotes", "Estado", "Entrada", "P&L"]
+        )}</div>`;
+      }
+
+      if (adminSection === "CRM") {
+        body.innerHTML = `<div class="panel">${createTable(
+          [
+            ["Carlos Medina", "Llamada seguimiento", "Hoy", "Abierto"],
+            ["Ana Torres", "KYC incompleto", "Hoy", "Pendiente"],
+            ["Luis Romero", "Oferta bono", "Mañana", "Programado"]
+          ],
+          ["Cliente", "Actividad", "Fecha", "Estado"]
+        )}</div>`;
+      }
+
+      if (adminSection === "Riesgo") {
+        body.innerHTML = `<div class="panel">${createTable(
+          [
+            ["Marta Salas", "Alerta AML", "Alta", "Bloquear retiros"],
+            ["Luis Romero", "Exposición alta NAS100", "Media", "Monitorear margen"],
+            ["Sistema", "Volatilidad cripto", "Media", "Reducir apalancamiento"]
+          ],
+          ["Entidad", "Alerta", "Severidad", "Acción sugerida"]
+        )}</div>`;
+      }
+
+      if (adminSection === "Reportes") {
+        body.innerHTML = `<div class="panel">${createTable(
+          [
+            ["Balance diario", "PDF / CSV", "Hoy", "Listo"],
+            ["Operaciones por cliente", "CSV", "Semanal", "Listo"],
+            ["Riesgo y margen", "PDF", "Tiempo real", "Listo"]
+          ],
+          ["Reporte", "Formato", "Periodo", "Estado"]
+        )}</div>`;
+      }
+
+      if (adminSection === "Configuración") {
+        body.innerHTML = `
+          <div class="panel">
+            <label>Nombre plataforma</label>
+            <input class="input" value="WebTrade CRM">
+            <br><br>
+            <label>Apalancamiento máximo</label>
+            <select class="input"><option>1:2000</option><option>1:1000</option><option>1:500</option></select>
+            <br><br>
+            <label>Moneda base</label>
+            <input class="input" value="USD">
+          </div>`;
+      }
+
+      if (adminSection === "Usuarios admin") {
+        body.innerHTML = `<div class="panel">${createTable(adminUsers, ["Usuario", "Rol", "Estado", "Último acceso"])}</div>`;
+      }
+
+      if (adminSection === "Auditoría") {
+        body.innerHTML = `<div class="panel">${createTable(audits, ["Evento", "Usuario", "Fecha", "Estado"])}</div>`;
+      }
+    }
+
+    function orderInfo() {
+      const lotsEl = $("lots");
+      const typeEl = $("otype");
+      const entryEl = $("entry");
+      const slEl = $("sl");
+      const tpEl = $("tp");
+      const infoEl = $("oinfo");
+      if (!lotsEl || !typeEl || !entryEl || !infoEl) return;
+
+      const lots = Number(lotsEl.value || 0);
+      const entry = typeEl.value === "market" ? price() : Number(entryEl.value || price());
+      const margin = requiredMargin(lots, entry);
+      const notional = units(lots) * entry;
+
+      infoEl.innerHTML = `
+        Tipo: ${typeEl.value === "market" ? "Mercado" : "Pendiente"}<br>
+        Activo: ${asset}<br>
+        Lado: ${side}<br>
+        Lotes: ${lots}<br>
+        Unidades: ${units(lots).toLocaleString()}<br>
+        Entrada: ${fmt(entry)}<br>
+        SL: ${slEl.value || "-"} · TP: ${tpEl.value || "-"}<br>
+        Margen 1:2000: $${margin.toFixed(2)}<br>
+        Nocional: $${notional.toFixed(2)}
+      `;
+    }
+
+    function order() {
+      const lotsEl = $("lots");
+      const typeEl = $("otype");
+      const entryEl = $("entry");
+      const slEl = $("sl");
+      const tpEl = $("tp");
+      const errEl = $("oerr");
+
+      const lots = Number(lotsEl.value);
+      const entry = typeEl.value === "market" ? price() : Number(entryEl.value || price());
+      const margin = requiredMargin(lots, entry);
+
+      if (!lots || lots <= 0) {
+        errEl.style.display = "block";
+        errEl.textContent = "Volumen inválido";
+        return;
+      }
+
+      if (freeMargin() < margin) {
+        errEl.style.display = "block";
+        errEl.textContent = "Saldo o margen insuficiente";
+        return;
+      }
+
+      positions.unshift({
+        id: Date.now(),
+        symbol: asset,
+        side,
+        lots,
+        orderType: typeEl.value === "market" ? "Mercado" : "Pendiente",
+        status: typeEl.value === "market" ? "Abierta" : "Pendiente",
+        open: entry,
+        sl: slEl.value || null,
+        tp: tpEl.value || null,
+        margin,
+        pnl: 0,
+        time: new Date().toLocaleString()
+      });
+
+      save();
+      tab = "open";
+      render();
+    }
+
+    function renderTabs() {
+      const box = $("tabbox");
+      if (!box) return;
+
+      document.querySelectorAll(".tab").forEach((item) => item.classList.remove("active"));
+
+      if (tab === "open") {
+        $("tabOpen").classList.add("active");
+        box.innerHTML = createTable(
+          positions.map((item) => [
+            item.symbol,
+            item.side,
+            item.lots,
+            item.orderType,
+            item.status,
+            fmt(item.open),
+            item.sl || "-",
+            item.tp || "-",
+            "$" + item.margin.toFixed(2),
+            `<button class="btn red" data-close="${item.id}">Cerrar</button>`
+          ]),
+          ["Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "SL", "TP", "Margen", ""]
+        );
+      }
+
+      if (tab === "closed") {
+        $("tabClosed").classList.add("active");
+        box.innerHTML = createTable(
+          closed.map((item) => [item.symbol, item.side, item.lots, fmt(item.open), item.time]),
+          ["Símbolo", "Lado", "Lotes", "Entrada", "Hora"]
+        );
+      }
+
+      if (tab === "money") {
+        $("tabMoney").classList.add("active");
+        box.innerHTML = createTable(
+          money.map((item) => [item.type, "$" + item.amount.toFixed(2), item.status, item.time]),
+          ["Tipo", "Monto", "Estado", "Fecha"]
+        );
+      }
+
+      box.querySelectorAll("[data-close]").forEach((button) => {
+        button.onclick = () => closePosition(Number(button.dataset.close));
+      });
+    }
+
+    function createTable(rows, headers) {
+      if (!rows.length) return '<div class="item">Sin registros</div>';
+
+      return `
+        <table class="table">
+          <thead><tr>${headers.map((item) => `<th>${item}</th>`).join("")}</tr></thead>
+          <tbody>
+            ${rows.map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`).join("")}
+          </tbody>
+        </table>`;
+    }
+
+    function closePosition(id) {
+      const index = positions.findIndex((item) => item.id === id);
+      if (index < 0) return;
+
+      const item = positions.splice(index, 1)[0];
+      closed.unshift({ ...item, time: new Date().toLocaleString() });
+      updateLoggedClientBalance(accountBalance() + item.pnl);
+      save();
+      tab = "closed";
+      render();
+    }
+
+    function moneyForm(type) {
+      app.innerHTML = `
+        <div class="app">
+          <div class="top">
+            <button id="backBtn" class="btn blue">VOLVER</button>
+            <b>${type}</b>
+          </div>
+          <div class="login">
+            <div class="panel" style="width:420px">
+              <h3>Solicitud de ${type}</h3>
+              <input id="amt" class="input" type="number" placeholder="Monto USD">
+              <br><br>
+              <button id="okBtn" class="btn green" style="width:100%;padding:12px">CONFIRMAR</button>
+            </div>
+          </div>
+        </div>`;
+
+      $("backBtn").onclick = () => render();
+      $("okBtn").onclick = () => {
+        const amount = Number($("amt").value);
+        if (!amount || amount <= 0) return;
+
+        money.unshift({
+          type,
+          amount,
+          status: type === "Depósito" ? "Pendiente de autorización" : "Solicitud pendiente",
+          time: new Date().toLocaleString()
+        });
+
+        if (type === "Retiro") updateLoggedClientBalance(accountBalance() - amount);
+        save();
+        tab = "money";
+        render();
+      };
+    }
+
+    function tick() {
+      tickCount++;
+
+      ASSETS.forEach((item) => {
+        const symbol = item[0];
+        const current = prices[symbol];
+        const volatility = current > 1000 ? 0.0007 : current > 100 ? 0.00035 : 0.00012;
+        const next = Math.max(0.00001, current + (Math.random() - 0.5) * current * volatility);
+        prices[symbol] = next;
+
+        TIMEFRAMES.forEach((timeframe) => {
+          const arr = candles[chartKey(symbol, timeframe)];
+          if (!arr || !arr.length) return;
+
+          const last = arr[arr.length - 1];
+          last.close = next;
+          last.high = Math.max(last.high, next);
+          last.low = Math.min(last.low, next);
+
+          if (tickCount % TICK_SPEED[timeframe] === 0) {
+            arr.push({ open: last.close, high: next, low: next, close: next });
+            if (arr.length > 90) arr.shift();
+          }
+        });
+      });
+
+      if (page !== "login") {
+        const priceNode = document.querySelector(".price");
+        if (priceNode) priceNode.textContent = fmt(price());
+        drawChart();
+      }
+    }
+
+    function drawChart() {
+      const svg = $("chartSvg");
+      if (!svg) return;
+
+      const data = candles[chartKey(asset, tf)];
+      if (!data || !data.length) return;
+
+      const W = 1000;
+      const H = 390;
+      const L = 58;
+      const R = 84;
+      const T = 16;
+      const B = 34;
+      const CW = W - L - R;
+      const CH = H - T - B;
+
+      const min = Math.min(...data.map((item) => item.low));
+      const max = Math.max(...data.map((item) => item.high));
+      const range = max - min || 1;
+      const y = (value) => T + CH - ((value - min) / range) * CH;
+      const step = CW / data.length;
+
+      let html = '<rect x="0" y="0" width="1000" height="390" fill="#060d1a"/>';
+
+      for (let i = 0; i <= 6; i++) {
+        const yy = T + (i * CH) / 6;
+        const label = max - (i * range) / 6;
+        html += `<line x1="${L}" y1="${yy}" x2="${W - R}" y2="${yy}" stroke="#111d30"/>`;
+        html += `<text x="${L - 6}" y="${yy + 4}" fill="#5a6e8a" font-size="11" text-anchor="end">${fmt(label)}</text>`;
+      }
+
+      data.forEach((item, index) => {
+        const x = L + index * step + step / 2;
+        const bullish = item.close >= item.open;
+        const color = bullish ? "#00d4a0" : "#f05e5e";
+        const top = y(Math.max(item.open, item.close));
+        const bottom = y(Math.min(item.open, item.close));
+        const height = Math.max(bottom - top, 2);
+        const width = Math.max(step * 0.55, 3);
+
+        html += `<line x1="${x}" y1="${y(item.high)}" x2="${x}" y2="${y(item.low)}" stroke="${color}"/>`;
+
+        if (bullish) {
+          html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="none" stroke="${color}"/>`;
+        } else {
+          html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="${color}"/>`;
+        }
+      });
+
+      const currentY = y(price());
+      html += `<line x1="${L}" y1="${currentY}" x2="${W - R}" y2="${currentY}" stroke="#63b3ed" stroke-dasharray="5 5"/>`;
+      html += `<rect x="${W - R + 4}" y="${currentY - 11}" width="76" height="22" fill="#63b3ed"/>`;
+      html += `<text x="${W - R + 42}" y="${currentY + 4}" fill="#060d1a" font-size="11" font-weight="bold" text-anchor="middle">${fmt(price())}</text>`;
+
+      svg.innerHTML = html;
+    }
+
+    initMarket();
+    load();
+    restoreSession();
+    render();
+    setInterval(tick, 1000);
+  </script>
+</body>
+</html>
+
+
