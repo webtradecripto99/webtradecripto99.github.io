@@ -377,7 +377,7 @@
     const ACCOUNT_TYPES = ["Standard", "Pro", "VIP", "Demo"];
     const LEVERAGES = ["1:50", "1:100", "1:200", "1:500", "1:1000", "1:2000"];
     const DEPOSIT_STATUSES = ["Pendiente", "Confirmado", "Rechazado"];
-    const WITHDRAWAL_STATUSES = ["En revision", "Aprobado", "Pagado", "Rechazado"];
+    const WITHDRAWAL_STATUSES = ["En revisión", "Aprobado", "Pagado", "Rechazado"];
     const PROMO_TYPES = ["Credito trading", "Bono"];
     const PROMO_STATUSES = ["Activo", "Quitado"];
     const WITHDRAWABLE_OPTIONS = ["Retirable", "No retirable"];
@@ -1252,9 +1252,9 @@
           reason: "Retiro de utilidad semanal",
           destination: "CLABE 012180001234567890",
           method: "SPEI",
-          status: "En revision",
+          status: "En revisión",
           date: "Hoy 11:10",
-          history: ["Solicitud recibida", "Cuenta destino pendiente de validacion"]
+          history: ["Solicitud recibida", "Cuenta destino pendiente de validación"]
         },
         {
           id: "RET-2002",
@@ -1345,10 +1345,10 @@
     function requestWithdrawalInfo(id) {
       const withdrawal = adminWithdrawals.find((item) => item.id === id);
       if (!withdrawal) return;
-      const note = prompt("Informacion adicional solicitada:", "Comprobante de titularidad de la cuenta destino");
+      const note = prompt("Información adicional solicitada:", "Comprobante de titularidad de la cuenta destino");
       if (note === null) return;
-      withdrawal.status = "En revision";
-      withdrawal.history = [`Informacion adicional solicitada: ${note || "Sin detalle"} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
+      withdrawal.status = "En revisión";
+      withdrawal.history = [`Información adicional solicitada: ${note || "Sin detalle"} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
       saveWithdrawals();
       renderAdmin();
     }
@@ -2167,7 +2167,7 @@
                   item.method,
                   item.status,
                   item.date,
-                  `<button class="btn green" onclick="setWithdrawalStatus('${item.id}', 'Aprobado')">Aprobar</button> <button class="btn blue" onclick="setWithdrawalStatus('${item.id}', 'Pagado')">Pagado</button> <button class="btn yellow" onclick="requestWithdrawalInfo('${item.id}')">Solicitar información</button> <button class="btn red" onclick="setWithdrawalStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                  `<button class="btn green" onclick="setWithdrawalStatus('${item.id}', 'Aprobado')">Aprobar</button> <button class="btn blue" onclick="setWithdrawalStatus('${item.id}', 'Pagado')">Pagado</button> <button class="btn yellow" onclick="setWithdrawalStatus('${item.id}', 'En revisión')">En revisión</button> <button class="btn yellow" onclick="requestWithdrawalInfo('${item.id}')">Solicitar información</button> <button class="btn red" onclick="setWithdrawalStatus('${item.id}', 'Rechazado')">Rechazar</button>`
                 ]),
                 ["ID", "Cliente", "Cuenta", "Monto", "Motivo", "Cuenta destino", "Método", "Estado", "Fecha", "Acción"]
               )}
@@ -2189,7 +2189,7 @@
           $("withdrawalReason").value = "";
           $("withdrawalDestination").value = "";
           $("withdrawalMethod").value = "Transferencia bancaria";
-          $("withdrawalStatus").value = "En revision";
+          $("withdrawalStatus").value = "En revisión";
           $("withdrawalDate").value = new Date().toLocaleString();
         };
         $("saveWithdrawalBtn").onclick = saveWithdrawalFromForm;
