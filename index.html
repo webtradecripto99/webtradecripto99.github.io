@@ -2818,14 +2818,96 @@
       }
 
       if (adminSection === "Reportes") {
-        body.innerHTML = `<div class="panel">${createTable(
-          [
-            ["Balance diario", "PDF / CSV", "Hoy", "Listo"],
-            ["Operaciones por cliente", "CSV", "Semanal", "Listo"],
-            ["Riesgo y margen", "PDF", "Tiempo real", "Listo"]
-          ],
-          ["Reporte", "Formato", "Periodo", "Estado"]
-        )}</div>`;
+        updateFloatingPnl();
+        const confirmedDeposits = deposits.filter((item) => item.status === "Confirmado");
+        const paidWithdrawals = adminWithdrawalRows.filter((item) => item.status === "Pagado" || item.status === "Aprobado");
+        const reportOperations = [...positions.filter((item) => item.status !== "Pendiente"), ...closed];
+        const reportLots = reportOperations.reduce((sum, item) => sum + Number(item.lots || 0), 0);
+        const reportVolume = reportOperations.reduce((sum, item) => sum + Number(item.lots || 0) * contractSizeFor(item.symbol || "") * Number(item.open || 0), 0);
+        const balanceTotal = clients.reduce((sum, client) => sum + moneyValue(client.balance), 0);
+        const bonusRows = adminPromotionRows.filter((item) => item.type === "Bono" && item.status !== "Quitado");
+        const activeCreditRows = adminPromotionRows.filter((item) => item.type === "Crédito trading" && item.status === "Activo");
+        const activeClients = clients.filter((client) => client.status === "Activo" || client.crmStage === "Activo");
+        const dormantClients = clients.filter((client) => client.crmStage === "Dorman" || client.status === "Bloqueado" || client.status === "Suspendido");
+        const reportClientName = (operation) => {
+          const account = tradingAccounts.find((item) => item.id === operation.accountId || item.id === operation.account);
+          return operation.clientName || account?.client || operation.client || operation.clientId || operation.accountId || "Sin cliente";
+        };
+        const commissionTotal = reportOperations.reduce((sum, item) => {
+          const setting = assetSetting(item.symbol || "");
+          return sum + Number(item.lots || 0) * Number(setting.commission || 0);
+        }, 0);
+        const clientPnlRows = clients.map((client) => {
+          const clientOperations = reportOperations.filter((item) => reportClientName(item) === client.name || item.clientId === client.id);
+          const openPnl = positions.filter((item) => item.status !== "Pendiente" && (reportClientName(item) === client.name || item.clientId === client.id)).reduce((sum, item) => sum + Number(item.pnl || 0), 0);
+          const closedPnl = closed.filter((item) => reportClientName(item) === client.name || item.clientId === client.id).reduce((sum, item) => sum + Number(item.pnl || 0), 0);
+          return [
+            client.name,
+            client.status || "-",
+            client.crmStage || "-",
+            "$" + (openPnl + closedPnl).toFixed(2),
+            clientOperations.length,
+            clientOperations.reduce((sum, item) => sum + Number(item.lots || 0), 0).toFixed(2)
+          ];
+        });
+        body.innerHTML = `
+          <div class="adminGrid">
+            <div class="adminCard"><small>Depósitos totales</small><b>$${confirmedDeposits.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)}</b></div>
+            <div class="adminCard"><small>Retiros totales</small><b>$${paidWithdrawals.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)}</b></div>
+            <div class="adminCard"><small>Balance total de clientes</small><b>$${balanceTotal.toFixed(2)}</b></div>
+            <div class="adminCard"><small>Volumen operado</small><b>$${reportVolume.toFixed(2)}</b></div>
+            <div class="adminCard"><small>Lotes operados</small><b>${reportLots.toFixed(2)}</b></div>
+            <div class="adminCard"><small>Clientes activos</small><b>${activeClients.length}</b></div>
+            <div class="adminCard"><small>Clientes dormidos</small><b>${dormantClients.length}</b></div>
+            <div class="adminCard"><small>Comisiones generadas</small><b>$${commissionTotal.toFixed(2)}</b></div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Reportes financieros</h3>
+              ${createTable(
+                [
+                  ["Depósitos totales", confirmedDeposits.length, "$" + confirmedDeposits.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)],
+                  ["Retiros totales", paidWithdrawals.length, "$" + paidWithdrawals.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)],
+                  ["Balance total de clientes", clients.length, "$" + balanceTotal.toFixed(2)],
+                  ["Bonos entregados", bonusRows.length, "$" + bonusRows.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)],
+                  ["Créditos activos", activeCreditRows.length, "$" + activeCreditRows.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)],
+                  ["Comisiones generadas", reportOperations.length, "$" + commissionTotal.toFixed(2)]
+                ],
+                ["Reporte", "Registros", "Total"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Reportes operativos</h3>
+              ${createTable(
+                [
+                  ["Volumen operado", reportOperations.length, "$" + reportVolume.toFixed(2)],
+                  ["Lotes operados", reportOperations.length, reportLots.toFixed(2)],
+                  ["Clientes activos", activeClients.length, activeClients.map((client) => client.name).join(", ") || "-"],
+                  ["Clientes dormidos", dormantClients.length, dormantClients.map((client) => client.name).join(", ") || "-"]
+                ],
+                ["Reporte", "Total", "Detalle"]
+              )}
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Pérdidas/ganancias por cliente</h3>
+            ${createTable(clientPnlRows, ["Cliente", "Estado", "Etapa CRM", "Pérdida / ganancia", "Operaciones", "Lotes operados"])}
+          </div>
+          <div class="panel">
+            <h3>Bonos y créditos</h3>
+            ${createTable(
+              adminPromotionRows.map((item) => [
+                item.id,
+                item.client,
+                item.type,
+                "$" + Number(item.amount || 0).toFixed(2),
+                item.status,
+                item.expires || "-",
+                item.withdrawable || "-"
+              ]),
+              ["ID", "Cliente", "Tipo", "Monto", "Estado", "Vencimiento", "Retirable"]
+            )}
+          </div>`;
       }
 
       if (adminSection === "Configuración de activos") {
