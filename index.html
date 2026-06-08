@@ -390,11 +390,11 @@
     const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
     const ADMIN_ROLES = ["Super admin", "Finanzas", "Retención", "Soporte", "Ventas"];
     const ROLE_PERMISSIONS = {
-      "Super admin": ["Dashboard", "Clientes", "Cuentas trading", "Depósitos", "Retiros", "Créditos / Bonos", "Operaciones", "CRM", "Riesgo", "Reportes", "Configuración de activos", "Configuración", "Usuarios admin", "Auditoría"],
-      Finanzas: ["Dashboard", "Depósitos", "Retiros", "Créditos / Bonos", "Reportes", "Auditoría"],
-      Retención: ["Dashboard", "Clientes", "CRM", "Créditos / Bonos", "Reportes", "Auditoría"],
-      Soporte: ["Dashboard", "Clientes", "Cuentas trading", "Operaciones", "CRM", "Auditoría"],
-      Ventas: ["Dashboard", "Clientes", "CRM", "Reportes"]
+      "Super admin": ["Dashboard", "Solicitudes pendientes", "Clientes", "Cuentas trading", "Depósitos", "Retiros", "Créditos / Bonos", "Operaciones", "CRM", "Riesgo", "Reportes", "Configuración de activos", "Configuración", "Usuarios admin", "Auditoría"],
+      Finanzas: ["Dashboard", "Solicitudes pendientes", "Depósitos", "Retiros", "Créditos / Bonos", "Reportes", "Auditoría"],
+      Retención: ["Dashboard", "Solicitudes pendientes", "Clientes", "CRM", "Créditos / Bonos", "Reportes", "Auditoría"],
+      Soporte: ["Dashboard", "Solicitudes pendientes", "Clientes", "Cuentas trading", "Operaciones", "CRM", "Auditoría"],
+      Ventas: ["Dashboard", "Solicitudes pendientes", "Clientes", "CRM", "Reportes"]
     };
     const SENSITIVE_ACTIONS = ["Depósitos", "Retiros", "Créditos / Bonos", "Operaciones", "Riesgo", "Configuración de activos", "Usuarios admin"];
     const SESSION_MS = 15 * 60 * 1000;
@@ -411,6 +411,7 @@
 
     const ADMIN_MENU = [
       "Dashboard",
+      "Solicitudes pendientes",
       "Clientes",
       "Cuentas trading",
       "Depósitos",
@@ -2214,6 +2215,24 @@
         ["Margen usado", "$" + usedMargin().toFixed(2)],
         ["P&L flotante", "$" + totalPnl().toFixed(2)]
       ];
+      const pendingWithdrawals = adminWithdrawalRows.filter((item) => item.status === "En revisión");
+      const pendingVerifications = clients.filter((client) => ["Pendiente", "No iniciado"].includes(client.kyc));
+      const lowMarginClients = riskRows().filter((item) => item.issues.includes("margen bajo"));
+      const supportClients = clients.map(ensureCrmFields).filter((client) => {
+        const text = [
+          client.crmNotes,
+          ...(client.contactHistory || []),
+          ...(client.commercialTags || [])
+        ].join(" ").toLowerCase();
+        return text.includes("soporte") || text.includes("ayuda") || text.includes("ticket") || text.includes("reclamo");
+      });
+      const bonusesToReview = adminPromotionRows.filter((item) => item.type === "Bono" && item.status !== "Quitado");
+      const blockedAccounts = tradingAccounts.filter((account) =>
+        account.blockOpen === "Sí" ||
+        account.closeOnly === "Sí" ||
+        account.active === "Bloqueada" ||
+        account.active === "Inactiva"
+      );
 
       app.innerHTML = `
         <div class="app">
@@ -2282,6 +2301,129 @@
                 ["Alertas de riesgo", 2, "Revisión manual"]
               ],
               ["Módulo", "Total", "Estado"]
+            )}
+          </div>`;
+      }
+
+      if (adminSection === "Solicitudes pendientes") {
+        body.innerHTML = `
+          <div class="adminGrid">
+            <div class="adminCard"><small>Depósitos pendientes</small><b>${pendingDeposits.length}</b></div>
+            <div class="adminCard"><small>Retiros pendientes</small><b>${pendingWithdrawals.length}</b></div>
+            <div class="adminCard"><small>Verificaciones pendientes</small><b>${pendingVerifications.length}</b></div>
+            <div class="adminCard"><small>Clientes con margen bajo</small><b>${lowMarginClients.length}</b></div>
+            <div class="adminCard"><small>Clientes solicitando soporte</small><b>${supportClients.length}</b></div>
+            <div class="adminCard"><small>Bonos por revisar</small><b>${bonusesToReview.length}</b></div>
+            <div class="adminCard"><small>Cuentas bloqueadas</small><b>${blockedAccounts.length}</b></div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Depósitos pendientes</h3>
+              ${createTable(
+                pendingDeposits.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.method,
+                  item.receipt,
+                  item.date,
+                  `<button class="btn green" onclick="setDepositStatus('${item.id}', 'Confirmado')">Aprobar</button> <button class="btn red" onclick="setDepositStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Monto", "Método", "Comprobante", "Fecha", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Retiros pendientes</h3>
+              ${createTable(
+                pendingWithdrawals.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.reason,
+                  item.destination,
+                  item.method,
+                  `<button class="btn green" onclick="setWithdrawalStatus('${item.id}', 'Aprobado')">Aprobar</button> <button class="btn yellow" onclick="requestWithdrawalInfo('${item.id}')">Solicitar información</button> <button class="btn red" onclick="setWithdrawalStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Monto", "Motivo", "Cuenta destino", "Método", "Acción"]
+              )}
+            </div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Verificaciones pendientes</h3>
+              ${createTable(
+                pendingVerifications.map((client) => [
+                  client.id,
+                  client.name,
+                  client.email,
+                  client.phone,
+                  client.kyc,
+                  client.advisor || "Sin asignar"
+                ]),
+                ["ID", "Cliente", "Email", "Teléfono", "KYC", "Ejecutivo"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Clientes con margen bajo</h3>
+              ${createTable(
+                lowMarginClients.map((item) => [
+                  item.client,
+                  item.accountId,
+                  item.marginLevel > 9000 ? "Sin margen" : item.marginLevel.toFixed(2) + "%",
+                  "$" + Number(item.pnl || 0).toFixed(2),
+                  item.issues,
+                  `<button class="btn yellow" onclick="blockRiskAccount('${item.accountId}')">Bloquear</button>`
+                ]),
+                ["Cliente", "Cuenta", "Margen", "Pérdida / utilidad", "Alertas", "Acción"]
+              )}
+            </div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Clientes solicitando soporte</h3>
+              ${createTable(
+                supportClients.map((client) => [
+                  client.id,
+                  client.name,
+                  client.advisor || "Sin asignar",
+                  client.nextFollowUp || "-",
+                  client.crmNotes || "-",
+                  (client.contactHistory || []).slice(0, 2).join(" | ") || "-"
+                ]),
+                ["ID", "Cliente", "Ejecutivo", "Próximo seguimiento", "Notas", "Historial"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Bonos por revisar</h3>
+              ${createTable(
+                bonusesToReview.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.expires,
+                  item.lots,
+                  item.status,
+                  `<button class="btn red" onclick="removePromotion('${item.id}')">Quitar bono</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Monto", "Vencimiento", "Lotes", "Estado", "Acción"]
+              )}
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Cuentas bloqueadas</h3>
+            ${createTable(
+              blockedAccounts.map((account) => [
+                account.id,
+                account.client,
+                account.active,
+                account.blockOpen || "No",
+                account.closeOnly || "No",
+                account.lastUpdate || "-"
+              ]),
+              ["Cuenta", "Cliente", "Estado", "Bloqueo apertura", "Solo cierre", "Última actualización"]
             )}
           </div>`;
       }
