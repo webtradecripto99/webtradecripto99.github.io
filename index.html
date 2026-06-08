@@ -341,6 +341,7 @@
     let selectedClientId = "WT-1001";
     let selectedTradingAccountId = "MT5-50021";
     let loggedClientId = null;
+    let currentAdminUser = null;
     let sessionTimer = null;
     let tickCount = 0;
 
@@ -355,6 +356,7 @@
     let adminPromotions = [];
     let adminAssetSettings = [];
     let adminRiskSettings = [];
+    let adminSecurity = null;
 
     const ASSETS = [
       ["EUR/USD", 1.0854],
@@ -386,6 +388,15 @@
     const PROMO_STATUSES = ["Activo", "Quitado"];
     const WITHDRAWABLE_OPTIONS = ["Retirable", "No retirable"];
     const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
+    const ADMIN_ROLES = ["Super admin", "Finanzas", "Retención", "Soporte", "Ventas"];
+    const ROLE_PERMISSIONS = {
+      "Super admin": ["Dashboard", "Clientes", "Cuentas trading", "Depósitos", "Retiros", "Créditos / Bonos", "Operaciones", "CRM", "Riesgo", "Reportes", "Configuración de activos", "Configuración", "Usuarios admin", "Auditoría"],
+      Finanzas: ["Dashboard", "Depósitos", "Retiros", "Créditos / Bonos", "Reportes", "Auditoría"],
+      Retención: ["Dashboard", "Clientes", "CRM", "Créditos / Bonos", "Reportes", "Auditoría"],
+      Soporte: ["Dashboard", "Clientes", "Cuentas trading", "Operaciones", "CRM", "Auditoría"],
+      Ventas: ["Dashboard", "Clientes", "CRM", "Reportes"]
+    };
+    const SENSITIVE_ACTIONS = ["Depósitos", "Retiros", "Créditos / Bonos", "Operaciones", "Riesgo", "Configuración de activos", "Usuarios admin"];
     const SESSION_MS = 15 * 60 * 1000;
     const SUPABASE_URL = "https://syvnewyeuyovxoyngick.supabase.co";
     const SUPABASE_KEY = "sb_publishable_3PylYN-hIJqnFIx8HQsj8A_3qr2q6Qs";
@@ -598,6 +609,7 @@
       if (!adminPromotions.length) loadPromotions();
       if (!adminAssetSettings.length) loadAssetSettings();
       if (!adminRiskSettings.length) loadRiskSettings();
+      if (!adminSecurity) loadAdminSecurity();
 
       return {
         balance,
@@ -611,7 +623,8 @@
         adminWithdrawals,
         adminPromotions,
         adminAssetSettings,
-        adminRiskSettings
+        adminRiskSettings,
+        adminSecurity
       };
     }
 
@@ -631,6 +644,7 @@
       adminPromotions = Array.isArray(data.adminPromotions) ? data.adminPromotions : adminPromotions;
       adminAssetSettings = Array.isArray(data.adminAssetSettings) ? data.adminAssetSettings : adminAssetSettings;
       adminRiskSettings = Array.isArray(data.adminRiskSettings) ? data.adminRiskSettings : adminRiskSettings;
+      adminSecurity = data.adminSecurity && typeof data.adminSecurity === "object" ? normalizeAdminSecurity(data.adminSecurity) : adminSecurity;
 
       localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
@@ -640,6 +654,7 @@
       localStorage.setItem("webtrade_admin_promotions_v1", JSON.stringify(adminPromotions));
       localStorage.setItem("webtrade_admin_asset_settings_v1", JSON.stringify(adminAssetSettings));
       localStorage.setItem("webtrade_admin_risk_settings_v1", JSON.stringify(adminRiskSettings));
+      localStorage.setItem("webtrade_admin_security_v1", JSON.stringify(adminSecurity));
 
       cloudApplying = false;
       cloudReady = true;
@@ -722,6 +737,110 @@
       }).catch(() => {});
     }
 
+    function defaultAdminSecurity() {
+      return {
+        twoFactorEnabled: true,
+        twoFactorCode: "000000",
+        maxFailedAttempts: 5,
+        sensitiveConfirmation: true,
+        users: [
+          { username: "admin", password: "123456", role: "Super admin", status: "Activo", lastAccess: "Sin acceso", failedAttempts: 0, lockedUntil: null },
+          { username: "finanzas", password: "123456", role: "Finanzas", status: "Activo", lastAccess: "Sin acceso", failedAttempts: 0, lockedUntil: null },
+          { username: "retencion", password: "123456", role: "Retención", status: "Activo", lastAccess: "Sin acceso", failedAttempts: 0, lockedUntil: null },
+          { username: "soporte", password: "123456", role: "Soporte", status: "Activo", lastAccess: "Sin acceso", failedAttempts: 0, lockedUntil: null },
+          { username: "ventas", password: "123456", role: "Ventas", status: "Activo", lastAccess: "Sin acceso", failedAttempts: 0, lockedUntil: null }
+        ],
+        audit: [
+          { user: "system", role: "Sistema", module: "Seguridad del administrador", action: "Seguridad inicializada", detail: "Login independiente, roles, permisos, 2FA y bloqueo activo", at: new Date().toLocaleString() }
+        ]
+      };
+    }
+
+    function normalizeAdminSecurity(security) {
+      const base = defaultAdminSecurity();
+      return {
+        ...base,
+        ...security,
+        users: Array.isArray(security.users) && security.users.length ? security.users.map((user) => ({
+          username: user.username,
+          password: user.password || "123456",
+          role: ADMIN_ROLES.includes(user.role) ? user.role : "Soporte",
+          status: user.status || "Activo",
+          lastAccess: user.lastAccess || "Sin acceso",
+          failedAttempts: Number(user.failedAttempts || 0),
+          lockedUntil: user.lockedUntil || null
+        })) : base.users,
+        audit: Array.isArray(security.audit) ? security.audit : base.audit
+      };
+    }
+
+    function loadAdminSecurity() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_security_v1"));
+        adminSecurity = saved ? normalizeAdminSecurity(saved) : defaultAdminSecurity();
+      } catch (error) {
+        adminSecurity = defaultAdminSecurity();
+      }
+    }
+
+    function saveAdminSecurity() {
+      if (!adminSecurity) loadAdminSecurity();
+      localStorage.setItem("webtrade_admin_security_v1", JSON.stringify(adminSecurity));
+      queueCloudSave();
+    }
+
+    function saveAdminSecuritySettings() {
+      if (!adminSecurity) loadAdminSecurity();
+      if (!confirmSensitive("Usuarios admin", "Modificar seguridad del administrador", "2FA, bloqueo y confirmación sensible")) return;
+      adminSecurity.twoFactorEnabled = $("security2fa").checked;
+      adminSecurity.twoFactorCode = $("security2faCode").value.trim() || "000000";
+      adminSecurity.maxFailedAttempts = Number($("securityAttempts").value || 5);
+      adminSecurity.sensitiveConfirmation = $("securityConfirm").checked;
+      saveAdminSecurity();
+      renderAdmin();
+    }
+
+    window.saveAdminSecuritySettings = saveAdminSecuritySettings;
+
+    function adminUser() {
+      if (!adminSecurity) loadAdminSecurity();
+      return adminSecurity.users.find((user) => user.username === currentAdminUser) || null;
+    }
+
+    function canAccessModule(moduleName) {
+      const user = adminUser();
+      if (!user) return false;
+      return (ROLE_PERMISSIONS[user.role] || []).includes(moduleName);
+    }
+
+    function registerAudit(moduleName, action, detail = "") {
+      if (!adminSecurity) loadAdminSecurity();
+      const user = adminUser();
+      adminSecurity.audit = [
+        {
+          user: user?.username || currentAdminUser || "system",
+          role: user?.role || "Sistema",
+          module: moduleName,
+          action,
+          detail,
+          at: new Date().toLocaleString()
+        },
+        ...(adminSecurity.audit || [])
+      ].slice(0, 200);
+      saveAdminSecurity();
+    }
+
+    function confirmSensitive(moduleName, action, detail = "") {
+      if (!adminSecurity) loadAdminSecurity();
+      if (!SENSITIVE_ACTIONS.includes(moduleName) || !adminSecurity.sensitiveConfirmation) {
+        registerAudit(moduleName, action, detail);
+        return true;
+      }
+      const ok = confirm(`Confirmación antes de movimiento sensible\n\nMódulo: ${moduleName}\nAcción: ${action}\nDetalle: ${detail || "-"}\n\n¿Confirmas la operación?`);
+      registerAudit(moduleName, ok ? action : "Cancelado: " + action, detail);
+      return ok;
+    }
+
     function saveSession(targetPage, clientId = null) {
       const expiresAt = Date.now() + SESSION_MS;
       localStorage.setItem(
@@ -729,6 +848,7 @@
         JSON.stringify({
           page: targetPage,
           loggedClientId: clientId,
+          currentAdminUser,
           expiresAt
         })
       );
@@ -738,6 +858,7 @@
     function clearSession() {
       localStorage.removeItem("webtrade_session_v1");
       loggedClientId = null;
+      currentAdminUser = null;
       if (sessionTimer) clearTimeout(sessionTimer);
       sessionTimer = null;
     }
@@ -762,6 +883,7 @@
 
         page = session.page === "admin" ? "admin" : "trade";
         loggedClientId = session.loggedClientId || null;
+        currentAdminUser = session.currentAdminUser || null;
         scheduleSessionTimeout(session.expiresAt);
       } catch (error) {
         clearSession();
@@ -771,8 +893,11 @@
     async function login(requiredRole = null) {
       const user = $("u").value.trim().toLowerCase();
       const pass = $("p").value.trim();
+      const otp = $("otp")?.value.trim() || "";
       if (!cloudReady) await loadCloudState();
       loadAdminClients();
+      if (!adminSecurity) loadAdminSecurity();
+      const adminAccount = adminSecurity.users.find((item) => item.username.toLowerCase() === user);
       const clientByUser = adminClients.find((client) =>
         String(client.accessUser || "").trim().toLowerCase() === user
       );
@@ -780,9 +905,9 @@
         ? clientByUser
         : null;
 
-      if (requiredRole === "admin" && user !== "admin" && user !== "administrador") {
+      if (requiredRole === "admin" && !adminAccount) {
         $("err").style.display = "block";
-        $("err").textContent = "Escribe el usuario administrador";
+        $("err").textContent = "Login independiente: escribe un usuario administrador válido.";
         return;
       }
 
@@ -792,7 +917,44 @@
         return;
       }
 
-      if ((user === "admin" || user === "administrador") && pass === "123456") {
+      if (adminAccount) {
+        if (adminAccount.status !== "Activo") {
+          $("err").style.display = "block";
+          $("err").textContent = "Usuario administrador inactivo.";
+          registerAudit("Seguridad del administrador", "Login bloqueado", user + " inactivo");
+          return;
+        }
+        if (adminAccount.lockedUntil && Date.now() < Number(adminAccount.lockedUntil)) {
+          $("err").style.display = "block";
+          $("err").textContent = "Usuario bloqueado por intentos fallidos. Intenta más tarde.";
+          registerAudit("Seguridad del administrador", "Login bloqueado", user + " bloqueado por intentos");
+          return;
+        }
+        if (adminAccount.password !== pass) {
+          adminAccount.failedAttempts = Number(adminAccount.failedAttempts || 0) + 1;
+          if (adminAccount.failedAttempts >= adminSecurity.maxFailedAttempts) {
+            adminAccount.lockedUntil = Date.now() + 15 * 60 * 1000;
+          }
+          saveAdminSecurity();
+          registerAudit("Seguridad del administrador", "Intento fallido", user);
+          $("err").style.display = "block";
+          $("err").textContent = "Contraseña de administrador incorrecta.";
+          return;
+        }
+        if (adminSecurity.twoFactorEnabled && otp !== adminSecurity.twoFactorCode) {
+          adminAccount.failedAttempts = Number(adminAccount.failedAttempts || 0) + 1;
+          saveAdminSecurity();
+          registerAudit("Seguridad del administrador", "2FA fallido", user);
+          $("err").style.display = "block";
+          $("err").textContent = "Código de autenticación de dos pasos incorrecto.";
+          return;
+        }
+        adminAccount.failedAttempts = 0;
+        adminAccount.lockedUntil = null;
+        adminAccount.lastAccess = new Date().toLocaleString();
+        currentAdminUser = adminAccount.username;
+        registerAudit("Seguridad del administrador", "Login admin", `${adminAccount.username} · ${adminAccount.role}`);
+        saveAdminSecurity();
         page = "admin";
         adminSection = "Dashboard";
         saveSession("admin");
@@ -980,6 +1142,7 @@
 
       selectedClientId = data.id;
       saveAdminClients();
+      registerAudit("Clientes", index >= 0 ? "Cliente editado" : "Cliente creado", data.id + " · " + data.name);
       const savedInCloud = await saveCloudState();
       if (!savedInCloud) {
         alert("El cliente se guardó en este navegador, pero no se pudo sincronizar con Supabase. Revisa internet o Supabase.");
@@ -1019,6 +1182,7 @@
       client.commercialTags = $("crmTags_" + id).value.split(",").map((tag) => tag.trim()).filter(Boolean);
       client.contactHistory = [`CRM actualizado - ${new Date().toLocaleString()}`, ...(client.contactHistory || [])];
       saveAdminClients();
+      registerAudit("CRM", "Cliente CRM actualizado", id + " · " + client.crmStage);
       await saveCloudState();
       renderAdmin();
     }
@@ -1031,6 +1195,7 @@
       ensureCrmFields(client);
       client.contactHistory = [`${note} - ${new Date().toLocaleString()}`, ...(client.contactHistory || [])];
       saveAdminClients();
+      registerAudit("CRM", "Contacto registrado", id + " · " + note);
       await saveCloudState();
       renderAdmin();
     }
@@ -1274,6 +1439,7 @@
         alert("El monto del depósito debe ser mayor a cero.");
         return;
       }
+      if (!confirmSensitive("Depósitos", "Colocar depósito manual", data.client + " · $" + Number(data.amount || 0).toFixed(2))) return;
 
       const index = adminDeposits.findIndex((item) => item.id === data.id);
       data.history = ["Depósito guardado - " + new Date().toLocaleString(), ...(data.history || [])];
@@ -1291,6 +1457,7 @@
     function setDepositStatus(id, status) {
       const deposit = adminDeposits.find((item) => item.id === id);
       if (!deposit) return;
+      if (!confirmSensitive("Depósitos", "Marcar depósito como " + status, id + " · $" + Number(deposit.amount || 0).toFixed(2))) return;
       deposit.status = status;
       deposit.history = [`Estado actualizado a ${status} - ${new Date().toLocaleString()}`, ...(deposit.history || [])];
       saveDeposits();
@@ -1400,6 +1567,7 @@
     function setWithdrawalStatus(id, status) {
       const withdrawal = adminWithdrawals.find((item) => item.id === id);
       if (!withdrawal) return;
+      if (!confirmSensitive("Retiros", "Marcar retiro como " + status, id + " · $" + Number(withdrawal.amount || 0).toFixed(2))) return;
       withdrawal.status = status;
       withdrawal.history = [`Estado actualizado a ${status} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
       saveWithdrawals();
@@ -1411,6 +1579,7 @@
       if (!withdrawal) return;
       const note = prompt("Información adicional solicitada:", "Comprobante de titularidad de la cuenta destino");
       if (note === null) return;
+      if (!confirmSensitive("Retiros", "Solicitar información adicional", id + " · " + (note || "Sin detalle"))) return;
       withdrawal.status = "En revisión";
       withdrawal.history = [`Información adicional solicitada: ${note || "Sin detalle"} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
       saveWithdrawals();
@@ -1490,6 +1659,7 @@
         alert("El monto debe ser mayor a cero.");
         return;
       }
+      if (!confirmSensitive("Créditos / Bonos", data.type + " aplicado", data.client + " · $" + Number(data.amount || 0).toFixed(2))) return;
 
       const index = adminPromotions.findIndex((item) => item.id === data.id);
       data.history = [`${data.type} aplicado - ${new Date().toLocaleString()}`, ...(data.history || [])];
@@ -1507,6 +1677,7 @@
     function removePromotion(id) {
       const promotion = adminPromotions.find((item) => item.id === id);
       if (!promotion) return;
+      if (!confirmSensitive("Créditos / Bonos", promotion.type === "Bono" ? "Quitar bono" : "Quitar crédito", id + " · " + promotion.client)) return;
       promotion.status = "Quitado";
       promotion.history = [`${promotion.type} quitado - ${new Date().toLocaleString()}`, ...(promotion.history || [])];
       savePromotions();
@@ -1528,10 +1699,12 @@
       return item.clientName || item.clientId || item.accountId || "Sin cliente";
     }
 
-    function adminCloseOperation(id) {
+    function adminCloseOperation(id, skipConfirm = false) {
       const index = positions.findIndex((item) => item.id === id);
       if (index < 0) return;
-      const item = positions.splice(index, 1)[0];
+      const item = positions[index];
+      if (!skipConfirm && !confirmSensitive("Operaciones", "Cerrar operación manualmente", id + " · " + item.symbol + " · " + item.lots + " lotes")) return;
+      positions.splice(index, 1);
       item.pnl = Number(floatingPnl(item).toFixed(2));
       closed.unshift({
         ...item,
@@ -1547,7 +1720,9 @@
     function adminCancelPendingOrder(id) {
       const index = positions.findIndex((item) => item.id === id && item.status === "Pendiente");
       if (index < 0) return;
-      const item = positions.splice(index, 1)[0];
+      const item = positions[index];
+      if (!confirmSensitive("Operaciones", "Cancelar orden pendiente", id + " · " + item.symbol + " · " + item.lots + " lotes")) return;
+      positions.splice(index, 1);
       closed.unshift({
         ...item,
         status: "Cancelada",
@@ -1565,6 +1740,7 @@
       if (nextSl === null) return;
       const nextTp = prompt("Nuevo TP:", item.tp || "");
       if (nextTp === null) return;
+      if (!confirmSensitive("Operaciones", "Modificar SL / TP", id + " · SL " + (nextSl || "-") + " · TP " + (nextTp || "-"))) return;
       item.sl = nextSl.trim() || null;
       item.tp = nextTp.trim() || null;
       save();
@@ -1576,6 +1752,7 @@
       if (!item) return;
       const nextEntry = Number(prompt("Nuevo precio de entrada pendiente:", item.open));
       if (!nextEntry || nextEntry <= 0) return;
+      if (!confirmSensitive("Operaciones", "Modificar precio de entrada pendiente", id + " · " + nextEntry)) return;
       item.open = nextEntry;
       item.margin = requiredMargin(item.lots, nextEntry);
       save();
@@ -1652,6 +1829,7 @@
     function updateAssetSetting(symbol) {
       const key = assetDomId(symbol);
       const setting = assetSetting(symbol);
+      if (!confirmSensitive("Configuración de activos", "Modificar configuración de activo", symbol)) return;
       setting.active = $("assetActive_" + key).value;
       setting.spread = Number($("assetSpread_" + key).value || 0);
       setting.hours = $("assetHours_" + key).value.trim() || "Sin horario";
@@ -1705,6 +1883,7 @@
 
     function saveRiskSettingsFromForm() {
       const settings = riskSettings();
+      if (!confirmSensitive("Riesgo", "Modificar reglas de riesgo", "Alertas, stop out, límites y exposición")) return;
       settings.marginAlert = Number($("riskMarginAlert").value || 0);
       settings.highLossAlert = Number($("riskHighLossAlert").value || 0);
       settings.stopOutLevel = Number($("riskStopOutLevel").value || 0);
@@ -1764,12 +1943,14 @@
 
     function applyStopOut(client) {
       const toClose = positions.filter((item) => operationClientName(item) === client && item.status !== "Pendiente");
-      toClose.forEach((item) => adminCloseOperation(item.id));
+      if (!confirmSensitive("Riesgo", "Stop out automático", client + " · " + toClose.length + " operaciones")) return;
+      toClose.forEach((item) => adminCloseOperation(item.id, true));
     }
 
     function blockRiskAccount(accountId) {
       const account = adminTradingAccounts.find((item) => item.id === accountId);
       if (!account) return;
+      if (!confirmSensitive("Riesgo", "Bloqueo por exposición excesiva", accountId + " · " + account.client)) return;
       account.blockOpen = "Sí";
       account.closeOnly = "Sí";
       account.lastUpdate = new Date().toLocaleString();
@@ -1789,12 +1970,14 @@
             <input id="u" class="input" placeholder="Usuario">
             <br><br>
             <input id="p" class="input" type="password" placeholder="Contraseña">
+            <br><br>
+            <input id="otp" class="input" placeholder="Código 2FA admin">
             <div id="err" class="error" style="display:none">Credenciales incorrectas</div>
             <br>
             <button id="loginBtn" class="btn green" style="width:100%;padding:12px">ENTRAR</button>
             <button id="adminBtn" class="btn blue" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO ADMINISTRADOR</button>
             <button id="clientBtn" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO CLIENTE</button>
-            <p style="font-size:11px;color:#5a6e8a;text-align:center">Escribe usuario y contraseña antes de elegir el acceso · v-admin-3</p>
+            <p style="font-size:11px;color:#5a6e8a;text-align:center">Admin: usuario independiente + código 2FA 000000 · Cliente: usuario y contraseña</p>
           </div>
         </div>`;
 
@@ -1991,6 +2174,10 @@
       if (!adminWithdrawals.length) loadWithdrawals();
       if (!adminPromotions.length) loadPromotions();
       if (!adminAssetSettings.length) loadAssetSettings();
+      if (!adminSecurity) loadAdminSecurity();
+      if (!currentAdminUser) currentAdminUser = "admin";
+      const activeAdmin = adminUser() || adminSecurity.users[0];
+      if (!canAccessModule(adminSection)) adminSection = "Dashboard";
       const clients = adminClients;
       const tradingAccounts = adminTradingAccounts;
       const deposits = adminDeposits;
@@ -1999,16 +2186,23 @@
       const assetSettings = ASSETS.map((item) => assetSetting(item[0]));
       const pendingDeposits = deposits.filter((item) => item.status === "Pendiente");
       const withdrawals = money.filter((item) => item.type === "Retiro");
-      const adminUsers = [
-        ["admin", "Super administrador", "Activo", "Hoy"],
-        ["risk.manager", "Riesgo", "Activo", "Ayer"],
-        ["support.crm", "CRM", "Activo", "Esta semana"]
-      ];
-      const audits = [
-        ["Login admin", "admin", new Date().toLocaleString(), "Correcto"],
-        ["Actualización de cliente", "support.crm", "Pendiente", "Registrado"],
-        ["Cambio de margen", "risk.manager", "Pendiente", "Requiere aprobación"]
-      ];
+      const adminUsers = adminSecurity.users.map((user) => [
+        user.username,
+        user.role,
+        user.status,
+        user.lastAccess,
+        user.failedAttempts || 0,
+        user.lockedUntil && Date.now() < Number(user.lockedUntil) ? "Bloqueado por intentos fallidos" : "Disponible",
+        (ROLE_PERMISSIONS[user.role] || []).join(", ")
+      ]);
+      const audits = (adminSecurity.audit || []).map((event) => [
+        event.user,
+        event.role,
+        event.module,
+        event.action,
+        event.detail || "-",
+        event.at
+      ]);
 
       const metrics = [
         ["Clientes", clients.length],
@@ -2033,8 +2227,9 @@
               <button id="riskBtn" class="btn yellow">ALERTAS RIESGO</button>
             </div>
             <div>
-              <span class="metric"><small>Rol</small><b>Administrador</b></span>
-              <span class="metric"><small>Estado</small><b>Operativo</b></span>
+              <span class="metric"><small>Usuario</small><b>${activeAdmin.username}</b></span>
+              <span class="metric"><small>Rol</small><b>${activeAdmin.role}</b></span>
+              <span class="metric"><small>2FA</small><b>${adminSecurity.twoFactorEnabled ? "Activo" : "Inactivo"}</b></span>
             </div>
           </div>
           <div class="adminLayout">
@@ -2060,7 +2255,7 @@
       };
 
       const menu = $("adminMenu");
-      ADMIN_MENU.forEach((item) => {
+      ADMIN_MENU.filter(canAccessModule).forEach((item) => {
         const button = document.createElement("button");
         button.textContent = item;
         button.className = item === adminSection ? "active" : "";
@@ -2959,11 +3154,54 @@
       }
 
       if (adminSection === "Usuarios admin") {
-        body.innerHTML = `<div class="panel">${createTable(adminUsers, ["Usuario", "Rol", "Estado", "Último acceso"])}</div>`;
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Seguridad del administrador</h3>
+              <div class="formGrid">
+                <div>
+                  <label>Autenticación de dos pasos</label>
+                  <label><input id="security2fa" type="checkbox" ${adminSecurity.twoFactorEnabled ? "checked" : ""}> Requerir código 2FA</label>
+                </div>
+                <div>
+                  <label>Código 2FA</label>
+                  <input id="security2faCode" class="input" value="${adminSecurity.twoFactorCode}">
+                </div>
+                <div>
+                  <label>Bloqueo por intentos fallidos</label>
+                  <input id="securityAttempts" class="input" type="number" min="1" value="${adminSecurity.maxFailedAttempts}">
+                </div>
+                <div>
+                  <label>Movimientos sensibles</label>
+                  <label><input id="securityConfirm" type="checkbox" ${adminSecurity.sensitiveConfirmation ? "checked" : ""}> Confirmación antes de movimientos sensibles</label>
+                </div>
+              </div>
+              <div class="miniActions">
+                <button class="btn blue" onclick="saveAdminSecuritySettings()">Guardar seguridad</button>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>Roles de usuario</h3>
+              ${createTable(ADMIN_ROLES.map((role) => [role, (ROLE_PERMISSIONS[role] || []).join(", ")]), ["Rol", "Permisos por módulo"])}
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Login independiente</h3>
+            ${createTable(adminUsers, ["Usuario", "Rol", "Estado", "Último acceso", "Intentos fallidos", "Bloqueo", "Permisos por módulo"])}
+          </div>`;
       }
 
       if (adminSection === "Auditoría") {
-        body.innerHTML = `<div class="panel">${createTable(audits, ["Evento", "Usuario", "Fecha", "Estado"])}</div>`;
+        body.innerHTML = `
+          <div class="adminGrid">
+            <div class="adminCard"><small>Registro de auditoría</small><b>${audits.length}</b></div>
+            <div class="adminCard"><small>Quién modificó</small><b>${audits[0]?.[0] || "-"}</b></div>
+            <div class="adminCard"><small>Qué modificó</small><b>${audits[0]?.[3] || "-"}</b></div>
+            <div class="adminCard"><small>Fecha y hora</small><b>${audits[0]?.[5] || "-"}</b></div>
+          </div>
+          <div class="panel">
+            ${createTable(audits, ["Quién modificó", "Rol", "Módulo", "Qué modificó", "Detalle", "Fecha y hora"])}
+          </div>`;
       }
     }
 
