@@ -378,7 +378,7 @@
     const LEVERAGES = ["1:50", "1:100", "1:200", "1:500", "1:1000", "1:2000"];
     const DEPOSIT_STATUSES = ["Pendiente", "Confirmado", "Rechazado"];
     const WITHDRAWAL_STATUSES = ["En revisión", "Aprobado", "Pagado", "Rechazado"];
-    const PROMO_TYPES = ["Credito trading", "Bono"];
+    const PROMO_TYPES = ["Crédito trading", "Bono"];
     const PROMO_STATUSES = ["Activo", "Quitado"];
     const WITHDRAWABLE_OPTIONS = ["Retirable", "No retirable"];
     const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
@@ -1362,14 +1362,14 @@
           id: "CRE-3001",
           client: "Carlos Medina",
           account: "MT5-50021",
-          type: "Credito trading",
+          type: "Crédito trading",
           amount: 500,
           expires: "2026-07-08",
           lots: 8,
           minDeposit: 1000,
           withdrawable: "No retirable",
           status: "Activo",
-          history: ["Credito trading aplicado"]
+          history: ["Crédito trading aplicado"]
         },
         {
           id: "BON-4001",
@@ -2198,7 +2198,7 @@
       if (adminSection === "Créditos / Bonos") {
         const firstPromotion = adminPromotionRows[0] || defaultPromotions()[0];
         const creditHistory = adminPromotionRows
-          .filter((item) => item.type === "Credito trading")
+          .filter((item) => item.type === "Crédito trading" || item.type === "Credito trading")
           .flatMap((item) => (item.history || []).map((event) => [item.id, item.client, item.status, event]));
         const bonusHistory = adminPromotionRows
           .filter((item) => item.type === "Bono")
@@ -2210,7 +2210,9 @@
               <h3>Créditos y bonificaciones</h3>
               <div class="miniActions">
                 <button id="newPromoBtn" class="btn green">Nuevo crédito / bono</button>
-                <button id="savePromoBtn" class="btn blue">Agregar crédito o bono</button>
+                <button id="addCreditBtn" class="btn blue">Agregar crédito trading</button>
+                <button id="addBonusBtn" class="btn green">Agregar bono</button>
+                <button id="savePromoBtn" class="btn yellow">Guardar según tipo</button>
               </div>
               <div class="formGrid">
                 <div><label>ID</label><input id="promoId" class="input" value="${firstPromotion.id}"></div>
@@ -2263,12 +2265,20 @@
           $("promoId").value = "";
           $("promoClient").value = "";
           $("promoAccount").value = "";
-          $("promoType").value = "Credito trading";
+          $("promoType").value = "Crédito trading";
           $("promoAmount").value = "0";
           $("promoExpires").value = "";
           $("promoLots").value = "0";
           $("promoMinDeposit").value = "0";
           $("promoWithdrawable").value = "No retirable";
+        };
+        $("addCreditBtn").onclick = () => {
+          $("promoType").value = "Crédito trading";
+          savePromotionFromForm();
+        };
+        $("addBonusBtn").onclick = () => {
+          $("promoType").value = "Bono";
+          savePromotionFromForm();
         };
         $("savePromoBtn").onclick = savePromotionFromForm;
       }
