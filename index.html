@@ -354,6 +354,7 @@
     let adminWithdrawals = [];
     let adminPromotions = [];
     let adminAssetSettings = [];
+    let adminRiskSettings = [];
 
     const ASSETS = [
       ["EUR/USD", 1.0854],
@@ -594,6 +595,7 @@
       if (!adminWithdrawals.length) loadWithdrawals();
       if (!adminPromotions.length) loadPromotions();
       if (!adminAssetSettings.length) loadAssetSettings();
+      if (!adminRiskSettings.length) loadRiskSettings();
 
       return {
         balance,
@@ -606,7 +608,8 @@
         adminDeposits,
         adminWithdrawals,
         adminPromotions,
-        adminAssetSettings
+        adminAssetSettings,
+        adminRiskSettings
       };
     }
 
@@ -625,6 +628,7 @@
       adminWithdrawals = Array.isArray(data.adminWithdrawals) ? data.adminWithdrawals : adminWithdrawals;
       adminPromotions = Array.isArray(data.adminPromotions) ? data.adminPromotions : adminPromotions;
       adminAssetSettings = Array.isArray(data.adminAssetSettings) ? data.adminAssetSettings : adminAssetSettings;
+      adminRiskSettings = Array.isArray(data.adminRiskSettings) ? data.adminRiskSettings : adminRiskSettings;
 
       localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
@@ -633,6 +637,7 @@
       localStorage.setItem("webtrade_admin_withdrawals_v1", JSON.stringify(adminWithdrawals));
       localStorage.setItem("webtrade_admin_promotions_v1", JSON.stringify(adminPromotions));
       localStorage.setItem("webtrade_admin_asset_settings_v1", JSON.stringify(adminAssetSettings));
+      localStorage.setItem("webtrade_admin_risk_settings_v1", JSON.stringify(adminRiskSettings));
 
       cloudApplying = false;
       cloudReady = true;
@@ -1610,6 +1615,119 @@
 
     window.updateAssetSetting = updateAssetSetting;
 
+    function defaultRiskSettings() {
+      return [
+        {
+          id: "RISK-MAIN",
+          marginAlert: 150,
+          highLossAlert: 1000,
+          stopOutLevel: 50,
+          excessiveExposureLots: 25,
+          dailyLossLimit: 2000,
+          maxLotLimit: 10,
+          perAssetLimit: 15,
+          history: ["Configuración inicial de riesgo"]
+        }
+      ];
+    }
+
+    function loadRiskSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_risk_settings_v1"));
+        adminRiskSettings = Array.isArray(saved) && saved.length ? saved : defaultRiskSettings();
+      } catch (error) {
+        adminRiskSettings = defaultRiskSettings();
+      }
+    }
+
+    function saveRiskSettings() {
+      localStorage.setItem("webtrade_admin_risk_settings_v1", JSON.stringify(adminRiskSettings));
+      queueCloudSave();
+    }
+
+    function riskSettings() {
+      if (!adminRiskSettings.length) loadRiskSettings();
+      return adminRiskSettings[0];
+    }
+
+    function saveRiskSettingsFromForm() {
+      const settings = riskSettings();
+      settings.marginAlert = Number($("riskMarginAlert").value || 0);
+      settings.highLossAlert = Number($("riskHighLossAlert").value || 0);
+      settings.stopOutLevel = Number($("riskStopOutLevel").value || 0);
+      settings.excessiveExposureLots = Number($("riskExposureLots").value || 0);
+      settings.dailyLossLimit = Number($("riskDailyLossLimit").value || 0);
+      settings.maxLotLimit = Number($("riskMaxLotLimit").value || 0);
+      settings.perAssetLimit = Number($("riskPerAssetLimit").value || 0);
+      settings.history = [`Reglas de riesgo actualizadas - ${new Date().toLocaleString()}`, ...(settings.history || [])];
+      saveRiskSettings();
+      renderAdmin();
+    }
+
+    function riskRows() {
+      updateFloatingPnl();
+      const settings = riskSettings();
+      const rows = [];
+      const byClient = {};
+      positions.forEach((position) => {
+        const client = operationClientName(position);
+        if (!byClient[client]) byClient[client] = { positions: [], lots: 0, pnl: 0, symbols: {} };
+        byClient[client].positions.push(position);
+        byClient[client].lots += Number(position.lots || 0);
+        byClient[client].pnl += Number(position.pnl || 0);
+        byClient[client].symbols[position.symbol] = (byClient[client].symbols[position.symbol] || 0) + Number(position.lots || 0);
+      });
+
+      Object.keys(byClient).forEach((client) => {
+        const risk = byClient[client];
+        const account = adminTradingAccounts.find((item) => item.client === client) || {};
+        const used = Number(account.usedMargin || risk.positions.reduce((sum, item) => sum + Number(item.margin || 0), 0));
+        const equity = Number(account.equity || account.balance || 0) + risk.pnl;
+        const marginLevel = used > 0 ? (equity / used) * 100 : 9999;
+        const largestAsset = Object.entries(risk.symbols).sort((a, b) => b[1] - a[1])[0] || ["-", 0];
+        const issues = [];
+        if (marginLevel <= settings.marginAlert) issues.push("Alerta por margen bajo");
+        if (risk.pnl <= -Math.abs(settings.highLossAlert)) issues.push("Alerta por pérdida alta");
+        if (marginLevel <= settings.stopOutLevel) issues.push("Stop out automático");
+        if (risk.lots >= settings.excessiveExposureLots) issues.push("Exposición excesiva");
+        if (risk.pnl <= -Math.abs(settings.dailyLossLimit)) issues.push("Límite diario de pérdida");
+        if (Math.max(...risk.positions.map((item) => Number(item.lots || 0))) >= settings.maxLotLimit) issues.push("Límite máximo de lote");
+        if (largestAsset[1] >= settings.perAssetLimit) issues.push("Límite por activo");
+
+        rows.push({
+          client,
+          accountId: account.id || "-",
+          marginLevel,
+          pnl: risk.pnl,
+          lots: risk.lots,
+          largestAsset: `${largestAsset[0]} ${largestAsset[1].toFixed(2)} lotes`,
+          exposure: risk.positions.length,
+          issues: issues.length ? issues.join(", ") : "Sin alertas",
+          severity: marginLevel <= settings.stopOutLevel || risk.pnl <= -Math.abs(settings.dailyLossLimit) ? "Alta" : issues.length ? "Media" : "Baja"
+        });
+      });
+      return rows;
+    }
+
+    function applyStopOut(client) {
+      const toClose = positions.filter((item) => operationClientName(item) === client && item.status !== "Pendiente");
+      toClose.forEach((item) => adminCloseOperation(item.id));
+    }
+
+    function blockRiskAccount(accountId) {
+      const account = adminTradingAccounts.find((item) => item.id === accountId);
+      if (!account) return;
+      account.blockOpen = "Sí";
+      account.closeOnly = "Sí";
+      account.lastUpdate = new Date().toLocaleString();
+      saveTradingAccounts();
+      renderAdmin();
+    }
+
+    window.saveRiskSettingsFromForm = saveRiskSettingsFromForm;
+    window.applyStopOut = applyStopOut;
+    window.blockRiskAccount = blockRiskAccount;
+
     function renderLogin() {
       app.innerHTML = `
         <div class="login">
@@ -2552,14 +2670,68 @@
       }
 
       if (adminSection === "Riesgo") {
-        body.innerHTML = `<div class="panel">${createTable(
-          [
-            ["Marta Salas", "Alerta AML", "Alta", "Bloquear retiros"],
-            ["Luis Romero", "Exposición alta NAS100", "Media", "Monitorear margen"],
-            ["Sistema", "Volatilidad cripto", "Media", "Reducir apalancamiento"]
-          ],
-          ["Entidad", "Alerta", "Severidad", "Acción sugerida"]
-        )}</div>`;
+        const settings = riskSettings();
+        const rows = riskRows();
+        const highRisk = rows.filter((item) => item.severity === "Alta").length;
+        const mediumRisk = rows.filter((item) => item.severity === "Media").length;
+        body.innerHTML = `
+          <div class="adminGrid">
+            <div class="adminCard"><small>Alertas por margen bajo</small><b>${rows.filter((item) => item.issues.includes("margen bajo")).length}</b></div>
+            <div class="adminCard"><small>Alertas por pérdida alta</small><b>${rows.filter((item) => item.issues.includes("pérdida alta")).length}</b></div>
+            <div class="adminCard"><small>Cuentas en riesgo</small><b>${highRisk + mediumRisk}</b></div>
+            <div class="adminCard"><small>Stop out automático</small><b>${rows.filter((item) => item.issues.includes("Stop out")).length}</b></div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Control de riesgo</h3>
+              <div class="formGrid">
+                <div><label>Alertas por margen bajo (%)</label><input id="riskMarginAlert" class="input" type="number" step="0.01" value="${settings.marginAlert}"></div>
+                <div><label>Alertas por pérdida alta (USD)</label><input id="riskHighLossAlert" class="input" type="number" step="0.01" value="${settings.highLossAlert}"></div>
+                <div><label>Stop out automático (%)</label><input id="riskStopOutLevel" class="input" type="number" step="0.01" value="${settings.stopOutLevel}"></div>
+                <div><label>Bloqueo por exposición excesiva (lotes)</label><input id="riskExposureLots" class="input" type="number" step="0.01" value="${settings.excessiveExposureLots}"></div>
+                <div><label>Límite diario de pérdida (USD)</label><input id="riskDailyLossLimit" class="input" type="number" step="0.01" value="${settings.dailyLossLimit}"></div>
+                <div><label>Límite máximo de lote por orden</label><input id="riskMaxLotLimit" class="input" type="number" step="0.01" value="${settings.maxLotLimit}"></div>
+                <div><label>Límite por activo (lotes)</label><input id="riskPerAssetLimit" class="input" type="number" step="0.01" value="${settings.perAssetLimit}"></div>
+              </div>
+              <div class="miniActions">
+                <button class="btn blue" onclick="saveRiskSettingsFromForm()">Guardar reglas de riesgo</button>
+              </div>
+              <h3>Reglas activas</h3>
+              ${createTable(
+                [
+                  ["Margen bajo", settings.marginAlert + "%", "Genera alerta de margen"],
+                  ["Pérdida alta", "$" + Number(settings.highLossAlert || 0).toFixed(2), "Genera alerta por pérdida flotante"],
+                  ["Stop out automático", settings.stopOutLevel + "%", "Cierra operaciones manualmente desde riesgo"],
+                  ["Exposición excesiva", settings.excessiveExposureLots + " lotes", "Bloquea apertura / solo cierre"],
+                  ["Límite diario de pérdida", "$" + Number(settings.dailyLossLimit || 0).toFixed(2), "Marca cuenta en riesgo alto"],
+                  ["Límite máximo de lote", settings.maxLotLimit + " lotes", "Alerta por orden sobredimensionada"],
+                  ["Límite por activo", settings.perAssetLimit + " lotes", "Alerta por concentración"]
+                ],
+                ["Control", "Límite", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Revisión de cuentas en riesgo</h3>
+              ${createTable(
+                rows.map((item) => [
+                  item.client,
+                  item.accountId,
+                  item.marginLevel > 9000 ? "Sin margen" : item.marginLevel.toFixed(2) + "%",
+                  "$" + Number(item.pnl || 0).toFixed(2),
+                  item.lots.toFixed(2),
+                  item.largestAsset,
+                  item.severity,
+                  item.issues,
+                  `<button class="btn red" onclick="applyStopOut('${item.client}')">Stop out</button> <button class="btn yellow" onclick="blockRiskAccount('${item.accountId}')">Bloquear exposición</button>`
+                ]),
+                ["Cliente", "Cuenta", "Nivel margen", "Pérdida / utilidad", "Lotes", "Límite por activo", "Riesgo", "Alertas", "Acción"]
+              )}
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Historial de control de riesgo</h3>
+            ${createTable((settings.history || []).map((event, index) => [index + 1, event]), ["#", "Evento"])}
+          </div>`;
       }
 
       if (adminSection === "Reportes") {
