@@ -495,11 +495,11 @@
 
     function totalPnl() {
       updateFloatingPnl();
-      return positions.reduce((sum, item) => sum + (item.pnl || 0), 0);
+      return scopedPositions().reduce((sum, item) => sum + (item.pnl || 0), 0);
     }
 
     function usedMargin() {
-      return positions.reduce((sum, item) => sum + (item.margin || 0), 0);
+      return scopedPositions().reduce((sum, item) => sum + (item.margin || 0), 0);
     }
 
     function moneyValue(value) {
@@ -517,7 +517,8 @@
 
     function accountBalance() {
       const client = loggedClient();
-      return client ? moneyValue(client.balance) : balance;
+      const account = client ? currentTradingAccount() : null;
+      return account ? Number(account.balance || 0) : client ? moneyValue(client.balance) : balance;
     }
 
     function updateLoggedClientBalance(nextBalance) {
@@ -527,8 +528,16 @@
         return;
       }
 
-      client.balance = moneyText(nextBalance);
-      saveAdminClients();
+      const account = currentTradingAccount();
+      if (account) {
+        account.balance = Number(nextBalance.toFixed(2));
+        account.equity = Number((nextBalance + totalPnl()).toFixed(2));
+        account.freeMargin = Number(Math.max(0, account.equity - Number(account.usedMargin || 0)).toFixed(2));
+        saveTradingAccounts();
+      } else {
+        client.balance = moneyText(nextBalance);
+        saveAdminClients();
+      }
     }
 
     function freeMargin() {
@@ -611,6 +620,7 @@
       if (!adminAssetSettings.length) loadAssetSettings();
       if (!adminRiskSettings.length) loadRiskSettings();
       if (!adminSecurity) loadAdminSecurity();
+      normalizeAllOperations();
 
       return {
         balance,
@@ -646,6 +656,7 @@
       adminAssetSettings = Array.isArray(data.adminAssetSettings) ? data.adminAssetSettings : adminAssetSettings;
       adminRiskSettings = Array.isArray(data.adminRiskSettings) ? data.adminRiskSettings : adminRiskSettings;
       adminSecurity = data.adminSecurity && typeof data.adminSecurity === "object" ? normalizeAdminSecurity(data.adminSecurity) : adminSecurity;
+      normalizeAllOperations();
 
       localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
@@ -850,6 +861,7 @@
           page: targetPage,
           loggedClientId: clientId,
           currentAdminUser,
+          selectedTradingAccountId,
           expiresAt
         })
       );
@@ -885,6 +897,7 @@
         page = session.page === "admin" ? "admin" : "trade";
         loggedClientId = session.loggedClientId || null;
         currentAdminUser = session.currentAdminUser || null;
+        selectedTradingAccountId = session.selectedTradingAccountId || selectedTradingAccountId;
         scheduleSessionTimeout(session.expiresAt);
       } catch (error) {
         clearSession();
@@ -968,11 +981,13 @@
         }
         loggedClientId = clientAccess.id;
         selectedClientId = clientAccess.id;
+        selectedTradingAccountId = defaultClientTradingAccount(clientAccess)?.id || "";
         page = "trade";
         saveSession("trade", clientAccess.id);
         render();
       } else if (user === "cliente" && pass === "123456") {
         loggedClientId = "WT-1001";
+        selectedTradingAccountId = defaultClientTradingAccount(loggedClient())?.id || "";
         page = "trade";
         saveSession("trade", loggedClientId);
         render();
@@ -1284,26 +1299,84 @@
       return adminTradingAccounts.find((account) => account.id === selectedTradingAccountId) || adminTradingAccounts[0];
     }
 
+    function clientTradingAccounts(client = loggedClient()) {
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      if (!client) return [];
+      return adminTradingAccounts.filter((account) => account.client === client.name);
+    }
+
+    function defaultClientTradingAccount(client = loggedClient()) {
+      const accounts = clientTradingAccounts(client);
+      return accounts.find((account) => account.active === "Activa") || accounts[0] || null;
+    }
+
     function currentTradingAccount() {
       if (!adminTradingAccounts.length) loadTradingAccounts();
       const client = loggedClient();
 
       if (client) {
-        return adminTradingAccounts.find((account) => account.client === client.name && account.active === "Activa")
-          || adminTradingAccounts.find((account) => account.client === client.name)
-          || selectedTradingAccount();
+        const accounts = clientTradingAccounts(client);
+        const selected = accounts.find((account) => account.id === selectedTradingAccountId);
+        const account = selected || defaultClientTradingAccount(client);
+        selectedTradingAccountId = account?.id || "";
+        return account;
       }
 
       return selectedTradingAccount();
     }
 
+    function normalizeOperationOwnership(item) {
+      if (!item) return item;
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      if (!adminClients.length) loadAdminClients();
+
+      let account = item.accountId ? adminTradingAccounts.find((entry) => entry.id === item.accountId) : null;
+      let client = item.clientId ? adminClients.find((entry) => entry.id === item.clientId) : null;
+
+      if (!client && item.clientName) client = adminClients.find((entry) => entry.name === item.clientName);
+      if (!client && account) client = adminClients.find((entry) => entry.name === account.client);
+      if (!account && client) {
+        account = adminTradingAccounts.find((entry) => entry.client === client.name && entry.active === "Activa")
+          || adminTradingAccounts.find((entry) => entry.client === client.name);
+      }
+      if (!account && item.clientName) {
+        account = adminTradingAccounts.find((entry) => entry.client === item.clientName && entry.active === "Activa")
+          || adminTradingAccounts.find((entry) => entry.client === item.clientName);
+      }
+
+      if (account) item.accountId = account.id;
+      if (client) item.clientId = client.id;
+      if (account) item.clientName = account.client;
+      return item;
+    }
+
+    function normalizeAllOperations() {
+      positions.forEach(normalizeOperationOwnership);
+      closed.forEach(normalizeOperationOwnership);
+    }
+
+    function positionBelongsToAccount(item, account = currentTradingAccount()) {
+      if (!item || !account) return false;
+      normalizeOperationOwnership(item);
+      return item.accountId === account.id;
+    }
+
+    function scopedPositions() {
+      if (page !== "trade") return positions;
+      const account = currentTradingAccount();
+      return positions.filter((item) => positionBelongsToAccount(item, account));
+    }
+
+    function scopedClosed() {
+      if (page !== "trade") return closed;
+      const account = currentTradingAccount();
+      return closed.filter((item) => positionBelongsToAccount(item, account));
+    }
+
     function accountForPosition(position) {
       if (!adminTradingAccounts.length) loadTradingAccounts();
-      const client = loggedClient();
-
-      return adminTradingAccounts.find((account) => account.id === position.accountId)
-        || (client ? adminTradingAccounts.find((account) => account.client === client.name) : null)
-        || selectedTradingAccount();
+      normalizeOperationOwnership(position);
+      return adminTradingAccounts.find((account) => account.id === position.accountId) || null;
     }
 
     function applyClosedPnlToTradingAccount(position) {
@@ -1697,7 +1770,10 @@
     }
 
     function operationClientName(item) {
-      return item.clientName || item.clientId || item.accountId || "Sin cliente";
+      normalizeOperationOwnership(item);
+      const account = item.accountId ? adminTradingAccounts.find((entry) => entry.id === item.accountId) : null;
+      const client = item.clientId ? adminClients.find((entry) => entry.id === item.clientId) : null;
+      return account?.client || client?.name || item.clientName || item.clientId || item.accountId || "Sin cliente";
     }
 
     function adminCloseOperation(id, skipConfirm = false) {
@@ -2001,11 +2077,13 @@
         return;
       }
 
+      const currentClient = loggedClient();
+      const currentAccount = currentTradingAccount();
+      const tradeAccounts = clientTradingAccounts(currentClient);
       const currentBalance = accountBalance();
       const equity = currentBalance + totalPnl();
       const margin = usedMargin();
       const free = freeMargin();
-      const currentClient = loggedClient();
 
       app.innerHTML = `
         <div class="app">
@@ -2019,6 +2097,9 @@
             <div>
               <button id="depBtn" class="btn green">+$ DEPÓSITO</button>
               <button id="retBtn" class="btn yellow">-$ RETIRO</button>
+              <select id="tradeAccountSelect" class="input" style="margin-top:8px">
+                ${tradeAccounts.map((account) => `<option value="${account.id}" ${account.id === currentAccount?.id ? "selected" : ""}>${account.id} · ${account.type} · ${account.active}</option>`).join("")}
+              </select>
             </div>
 
             <div>
@@ -2111,6 +2192,15 @@
       };
       $("depBtn").onclick = () => moneyForm("Depósito");
       $("retBtn").onclick = () => moneyForm("Retiro");
+      if ($("tradeAccountSelect")) {
+        $("tradeAccountSelect").onchange = (event) => {
+          const allowed = clientTradingAccounts().some((account) => account.id === event.target.value);
+          if (!allowed) return;
+          selectedTradingAccountId = event.target.value;
+          saveSession("trade", loggedClientId);
+          render();
+        };
+      }
       $("buyBtn").onclick = () => {
         side = "BUY";
         render();
@@ -2986,6 +3076,7 @@
                 openOperations.map((item) => [
                   item.id,
                   operationClientName(item),
+                  item.accountId || "-",
                   item.symbol,
                   item.side,
                   item.lots,
@@ -2997,7 +3088,7 @@
                   `<span style="color:${Number(item.pnl || 0) >= 0 ? "#00d4a0" : "#f05e5e"}">$${Number(item.pnl || 0).toFixed(2)}</span>`,
                   `<button class="btn yellow" onclick="adminModifySlTp(${item.id})">Modificar SL / TP</button> <button class="btn red" onclick="adminCloseOperation(${item.id})">Cerrar manualmente</button>`
                 ]),
-                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada", "Precio actual", "SL", "TP", "Margen", "Utilidad / pérdida flotante", "Acción"]
+                ["ID", "Cliente", "Cuenta", "Símbolo", "Lado", "Lotes", "Entrada", "Precio actual", "SL", "TP", "Margen", "Utilidad / pérdida flotante", "Acción"]
               )}
             </div>
             <div class="panel">
@@ -3006,6 +3097,7 @@
                 pendingOrders.map((item) => [
                   item.id,
                   operationClientName(item),
+                  item.accountId || "-",
                   item.symbol,
                   item.side,
                   item.lots,
@@ -3015,7 +3107,7 @@
                   "$" + Number(item.margin || 0).toFixed(2),
                   `<button class="btn blue" onclick="adminModifyPendingEntry(${item.id})">Modificar entrada</button> <button class="btn yellow" onclick="adminModifySlTp(${item.id})">Modificar SL / TP</button> <button class="btn red" onclick="adminCancelPendingOrder(${item.id})">Cancelar pendiente</button>`
                 ]),
-                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada pendiente", "SL", "TP", "Margen", "Acción"]
+                ["ID", "Cliente", "Cuenta", "Símbolo", "Lado", "Lotes", "Entrada pendiente", "SL", "TP", "Margen", "Acción"]
               )}
             </div>
           </div>
@@ -3026,6 +3118,7 @@
                 closed.map((item) => [
                   item.id || "-",
                   operationClientName(item),
+                  item.accountId || "-",
                   item.symbol,
                   item.side,
                   item.lots,
@@ -3035,7 +3128,7 @@
                   "$" + Number(item.pnl || 0).toFixed(2),
                   item.time
                 ]),
-                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada", "Cierre", "Estado", "P&L", "Fecha"]
+                ["ID", "Cliente", "Cuenta", "Símbolo", "Lado", "Lotes", "Entrada", "Cierre", "Estado", "P&L", "Fecha"]
               )}
             </div>
             <div class="panel">
@@ -3400,6 +3493,16 @@
 
       const tradingAccount = currentTradingAccount();
       const client = loggedClient();
+      if (client && (!tradingAccount || tradingAccount.client !== client.name)) {
+        errEl.style.display = "block";
+        errEl.textContent = "No hay una cuenta trading válida para este cliente.";
+        return;
+      }
+      if (tradingAccount && (tradingAccount.active !== "Activa" || tradingAccount.blockOpen === "Sí")) {
+        errEl.style.display = "block";
+        errEl.textContent = "La cuenta seleccionada no permite abrir operaciones.";
+        return;
+      }
 
       positions.unshift({
         id: Date.now(),
@@ -3433,8 +3536,10 @@
       if (tab === "open") {
         $("tabOpen").classList.add("active");
         updateFloatingPnl();
+        const rows = scopedPositions();
         box.innerHTML = createTable(
-          positions.map((item) => [
+          rows.map((item) => [
+            item.accountId || "-",
             item.symbol,
             item.side,
             item.lots,
@@ -3448,15 +3553,16 @@
             `<span style="color:${item.pnl >= 0 ? "#00d4a0" : "#f05e5e"}">$${item.pnl.toFixed(2)}</span>`,
             `<button class="btn red" data-close="${item.id}">Cerrar</button>`
           ]),
-          ["Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "Precio actual", "SL", "TP", "Margen", "P/L flotante", ""]
+          ["Cuenta", "Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "Precio actual", "SL", "TP", "Margen", "P/L flotante", ""]
         );
       }
 
       if (tab === "closed") {
         $("tabClosed").classList.add("active");
+        const rows = scopedClosed();
         box.innerHTML = createTable(
-          closed.map((item) => [item.symbol, item.side, item.lots, fmt(item.open), item.time]),
-          ["Símbolo", "Lado", "Lotes", "Entrada", "Hora"]
+          rows.map((item) => [item.accountId || "-", item.symbol, item.side, item.lots, fmt(item.open), item.time]),
+          ["Cuenta", "Símbolo", "Lado", "Lotes", "Entrada", "Hora"]
         );
       }
 
@@ -3486,14 +3592,14 @@
     }
 
     function closePosition(id) {
-      const index = positions.findIndex((item) => item.id === id);
+      const account = currentTradingAccount();
+      const index = positions.findIndex((item) => item.id === id && positionBelongsToAccount(item, account));
       if (index < 0) return;
 
       const item = positions.splice(index, 1)[0];
       item.pnl = Number(floatingPnl(item).toFixed(2));
       closed.unshift({ ...item, time: new Date().toLocaleString() });
       applyClosedPnlToTradingAccount(item);
-      updateLoggedClientBalance(accountBalance() + item.pnl);
       save();
       tab = "closed";
       render();
