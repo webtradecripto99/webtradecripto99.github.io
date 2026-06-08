@@ -1451,6 +1451,78 @@
 
     window.removePromotion = removePromotion;
 
+    function adminOpenOperations() {
+      updateFloatingPnl();
+      return positions.filter((item) => item.status !== "Pendiente");
+    }
+
+    function adminPendingOrders() {
+      return positions.filter((item) => item.status === "Pendiente");
+    }
+
+    function operationClientName(item) {
+      return item.clientName || item.clientId || item.accountId || "Sin cliente";
+    }
+
+    function adminCloseOperation(id) {
+      const index = positions.findIndex((item) => item.id === id);
+      if (index < 0) return;
+      const item = positions.splice(index, 1)[0];
+      item.pnl = Number(floatingPnl(item).toFixed(2));
+      closed.unshift({
+        ...item,
+        status: "Cerrada",
+        close: prices[item.symbol] || item.open,
+        time: new Date().toLocaleString()
+      });
+      applyClosedPnlToTradingAccount(item);
+      save();
+      renderAdmin();
+    }
+
+    function adminCancelPendingOrder(id) {
+      const index = positions.findIndex((item) => item.id === id && item.status === "Pendiente");
+      if (index < 0) return;
+      const item = positions.splice(index, 1)[0];
+      closed.unshift({
+        ...item,
+        status: "Cancelada",
+        pnl: 0,
+        time: new Date().toLocaleString()
+      });
+      save();
+      renderAdmin();
+    }
+
+    function adminModifySlTp(id) {
+      const item = positions.find((position) => position.id === id);
+      if (!item) return;
+      const nextSl = prompt("Nuevo SL:", item.sl || "");
+      if (nextSl === null) return;
+      const nextTp = prompt("Nuevo TP:", item.tp || "");
+      if (nextTp === null) return;
+      item.sl = nextSl.trim() || null;
+      item.tp = nextTp.trim() || null;
+      save();
+      renderAdmin();
+    }
+
+    function adminModifyPendingEntry(id) {
+      const item = positions.find((position) => position.id === id && position.status === "Pendiente");
+      if (!item) return;
+      const nextEntry = Number(prompt("Nuevo precio de entrada pendiente:", item.open));
+      if (!nextEntry || nextEntry <= 0) return;
+      item.open = nextEntry;
+      item.margin = requiredMargin(item.lots, nextEntry);
+      save();
+      renderAdmin();
+    }
+
+    window.adminCloseOperation = adminCloseOperation;
+    window.adminCancelPendingOrder = adminCancelPendingOrder;
+    window.adminModifySlTp = adminModifySlTp;
+    window.adminModifyPendingEntry = adminModifyPendingEntry;
+
     function renderLogin() {
       app.innerHTML = `
         <div class="login">
@@ -2284,10 +2356,99 @@
       }
 
       if (adminSection === "Operaciones") {
-        body.innerHTML = `<div class="panel">${createTable(
-          positions.map((item) => [item.symbol, item.side, item.lots, item.status, fmt(item.open), "$" + item.pnl.toFixed(2)]),
-          ["Símbolo", "Lado", "Lotes", "Estado", "Entrada", "P&L"]
-        )}</div>`;
+        updateFloatingPnl();
+        const openOperations = adminOpenOperations();
+        const pendingOrders = adminPendingOrders();
+        const clientNames = [...new Set([...positions, ...closed].map(operationClientName))];
+        const clientHistory = clientNames.map((client) => {
+          const clientOpen = positions.filter((item) => operationClientName(item) === client);
+          const clientClosed = closed.filter((item) => operationClientName(item) === client);
+          const totalLots = [...clientOpen, ...clientClosed].reduce((sum, item) => sum + Number(item.lots || 0), 0);
+          const floating = clientOpen.reduce((sum, item) => sum + Number(item.pnl || 0), 0);
+          const closedPnl = clientClosed.reduce((sum, item) => sum + Number(item.pnl || 0), 0);
+          return [client, clientOpen.length, clientClosed.length, totalLots.toFixed(2), "$" + floating.toFixed(2), "$" + closedPnl.toFixed(2)];
+        });
+
+        body.innerHTML = `
+          <div class="panel">
+            <h3>Resumen de operaciones</h3>
+            ${createTable(
+              [
+                ["Operaciones abiertas", openOperations.length, "$" + openOperations.reduce((sum, item) => sum + Number(item.pnl || 0), 0).toFixed(2)],
+                ["Órdenes pendientes", pendingOrders.length, pendingOrders.reduce((sum, item) => sum + Number(item.lots || 0), 0).toFixed(2) + " lotes"],
+                ["Operaciones cerradas", closed.length, closed.reduce((sum, item) => sum + Number(item.lots || 0), 0).toFixed(2) + " lotes"],
+                ["Volumen total operado", [...positions, ...closed].length, [...positions, ...closed].reduce((sum, item) => sum + Number(item.lots || 0), 0).toFixed(2) + " lotes"]
+              ],
+              ["Métrica", "Total", "Detalle"]
+            )}
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Ver operaciones abiertas</h3>
+              ${createTable(
+                openOperations.map((item) => [
+                  item.id,
+                  operationClientName(item),
+                  item.symbol,
+                  item.side,
+                  item.lots,
+                  fmt(item.open),
+                  fmt(prices[item.symbol] || item.open),
+                  item.sl || "-",
+                  item.tp || "-",
+                  "$" + Number(item.margin || 0).toFixed(2),
+                  `<span style="color:${Number(item.pnl || 0) >= 0 ? "#00d4a0" : "#f05e5e"}">$${Number(item.pnl || 0).toFixed(2)}</span>`,
+                  `<button class="btn yellow" onclick="adminModifySlTp(${item.id})">Modificar SL / TP</button> <button class="btn red" onclick="adminCloseOperation(${item.id})">Cerrar manualmente</button>`
+                ]),
+                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada", "Precio actual", "SL", "TP", "Margen", "Utilidad / pérdida flotante", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Ver órdenes pendientes</h3>
+              ${createTable(
+                pendingOrders.map((item) => [
+                  item.id,
+                  operationClientName(item),
+                  item.symbol,
+                  item.side,
+                  item.lots,
+                  fmt(item.open),
+                  item.sl || "-",
+                  item.tp || "-",
+                  "$" + Number(item.margin || 0).toFixed(2),
+                  `<button class="btn blue" onclick="adminModifyPendingEntry(${item.id})">Modificar entrada</button> <button class="btn yellow" onclick="adminModifySlTp(${item.id})">Modificar SL / TP</button> <button class="btn red" onclick="adminCancelPendingOrder(${item.id})">Cancelar pendiente</button>`
+                ]),
+                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada pendiente", "SL", "TP", "Margen", "Acción"]
+              )}
+            </div>
+          </div>
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Ver operaciones cerradas</h3>
+              ${createTable(
+                closed.map((item) => [
+                  item.id || "-",
+                  operationClientName(item),
+                  item.symbol,
+                  item.side,
+                  item.lots,
+                  fmt(item.open),
+                  item.close ? fmt(item.close) : "-",
+                  item.status || "Cerrada",
+                  "$" + Number(item.pnl || 0).toFixed(2),
+                  item.time
+                ]),
+                ["ID", "Cliente", "Símbolo", "Lado", "Lotes", "Entrada", "Cierre", "Estado", "P&L", "Fecha"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Ver historial por cliente</h3>
+              ${createTable(
+                clientHistory,
+                ["Cliente", "Abiertas / pendientes", "Cerradas", "Volumen operado en lotes", "P&L flotante", "P&L cerrado"]
+              )}
+            </div>
+          </div>`;
       }
 
       if (adminSection === "CRM") {
