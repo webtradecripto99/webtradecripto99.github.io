@@ -351,6 +351,8 @@
     let adminClients = [];
     let adminTradingAccounts = [];
     let adminDeposits = [];
+    let adminWithdrawals = [];
+    let adminPromotions = [];
 
     const ASSETS = [
       ["EUR/USD", 1.0854],
@@ -375,6 +377,10 @@
     const ACCOUNT_TYPES = ["Standard", "Pro", "VIP", "Demo"];
     const LEVERAGES = ["1:50", "1:100", "1:200", "1:500", "1:1000", "1:2000"];
     const DEPOSIT_STATUSES = ["Pendiente", "Confirmado", "Rechazado"];
+    const WITHDRAWAL_STATUSES = ["En revision", "Aprobado", "Pagado", "Rechazado"];
+    const PROMO_TYPES = ["Credito trading", "Bono"];
+    const PROMO_STATUSES = ["Activo", "Quitado"];
+    const WITHDRAWABLE_OPTIONS = ["Retirable", "No retirable"];
     const PAYMENT_METHODS = ["Transferencia bancaria", "Tarjeta", "SPEI", "Cripto", "Efectivo", "Otro"];
     const SESSION_MS = 15 * 60 * 1000;
     const SUPABASE_URL = "https://syvnewyeuyovxoyngick.supabase.co";
@@ -583,6 +589,8 @@
       if (!adminClients.length) loadAdminClients();
       if (!adminTradingAccounts.length) loadTradingAccounts();
       if (!adminDeposits.length) loadDeposits();
+      if (!adminWithdrawals.length) loadWithdrawals();
+      if (!adminPromotions.length) loadPromotions();
 
       return {
         balance,
@@ -592,7 +600,9 @@
         tf,
         adminClients,
         adminTradingAccounts,
-        adminDeposits
+        adminDeposits,
+        adminWithdrawals,
+        adminPromotions
       };
     }
 
@@ -608,11 +618,15 @@
       adminClients = Array.isArray(data.adminClients) ? data.adminClients : adminClients;
       adminTradingAccounts = Array.isArray(data.adminTradingAccounts) ? data.adminTradingAccounts : adminTradingAccounts;
       adminDeposits = Array.isArray(data.adminDeposits) ? data.adminDeposits : adminDeposits;
+      adminWithdrawals = Array.isArray(data.adminWithdrawals) ? data.adminWithdrawals : adminWithdrawals;
+      adminPromotions = Array.isArray(data.adminPromotions) ? data.adminPromotions : adminPromotions;
 
       localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
       localStorage.setItem("webtrade_admin_trading_accounts_v1", JSON.stringify(adminTradingAccounts));
       localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
+      localStorage.setItem("webtrade_admin_withdrawals_v1", JSON.stringify(adminWithdrawals));
+      localStorage.setItem("webtrade_admin_promotions_v1", JSON.stringify(adminPromotions));
 
       cloudApplying = false;
       cloudReady = true;
@@ -1219,7 +1233,223 @@
       renderAdmin();
     }
 
+    function showDepositMethod(id) {
+      const deposit = adminDeposits.find((item) => item.id === id);
+      if (!deposit) return;
+      alert(`Método de pago: ${deposit.method}\nCuenta trading: ${deposit.account}\nComprobante: ${deposit.receipt}`);
+    }
+
     window.setDepositStatus = setDepositStatus;
+    window.showDepositMethod = showDepositMethod;
+
+    function defaultWithdrawals() {
+      return [
+        {
+          id: "RET-2001",
+          client: "Carlos Medina",
+          account: "MT5-50021",
+          amount: 650,
+          reason: "Retiro de utilidad semanal",
+          destination: "CLABE 012180001234567890",
+          method: "SPEI",
+          status: "En revision",
+          date: "Hoy 11:10",
+          history: ["Solicitud recibida", "Cuenta destino pendiente de validacion"]
+        },
+        {
+          id: "RET-2002",
+          client: "Ana Torres",
+          account: "DEMO-90210",
+          amount: 300,
+          reason: "Retiro parcial de saldo",
+          destination: "Tarjeta terminacion 2190",
+          method: "Tarjeta",
+          status: "Aprobado",
+          date: "Ayer 13:35",
+          history: ["Solicitud recibida", "Retiro aprobado"]
+        },
+        {
+          id: "RET-2003",
+          client: "Marta Salas",
+          account: "MT5-50023",
+          amount: 120,
+          reason: "Solicitud duplicada",
+          destination: "CLABE 072000004444222218",
+          method: "Transferencia bancaria",
+          status: "Rechazado",
+          date: "Ayer 09:40",
+          history: ["Solicitud recibida", "Retiro rechazado por duplicidad"]
+        }
+      ];
+    }
+
+    function loadWithdrawals() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_withdrawals_v1"));
+        adminWithdrawals = Array.isArray(saved) && saved.length ? saved : defaultWithdrawals();
+      } catch (error) {
+        adminWithdrawals = defaultWithdrawals();
+      }
+    }
+
+    function saveWithdrawals() {
+      localStorage.setItem("webtrade_admin_withdrawals_v1", JSON.stringify(adminWithdrawals));
+      queueCloudSave();
+    }
+
+    function withdrawalFormData() {
+      const id = $("withdrawalId").value.trim() || "RET-" + Math.floor(1000 + Math.random() * 9000);
+      return {
+        id,
+        client: $("withdrawalClient").value.trim() || "Sin cliente",
+        account: $("withdrawalAccount").value.trim() || "Sin cuenta",
+        amount: Number($("withdrawalAmount").value || 0),
+        reason: $("withdrawalReason").value.trim() || "Sin motivo",
+        destination: $("withdrawalDestination").value.trim() || "Sin cuenta destino",
+        method: $("withdrawalMethod").value,
+        status: $("withdrawalStatus").value,
+        date: $("withdrawalDate").value.trim() || new Date().toLocaleString(),
+        history: adminWithdrawals.find((item) => item.id === id)?.history || ["Retiro creado"]
+      };
+    }
+
+    function saveWithdrawalFromForm() {
+      const data = withdrawalFormData();
+      if (!data.amount || data.amount <= 0) {
+        alert("El monto del retiro debe ser mayor a cero.");
+        return;
+      }
+
+      const index = adminWithdrawals.findIndex((item) => item.id === data.id);
+      data.history = ["Retiro guardado - " + new Date().toLocaleString(), ...(data.history || [])];
+
+      if (index >= 0) {
+        adminWithdrawals[index] = data;
+      } else {
+        adminWithdrawals.unshift(data);
+      }
+
+      saveWithdrawals();
+      renderAdmin();
+    }
+
+    function setWithdrawalStatus(id, status) {
+      const withdrawal = adminWithdrawals.find((item) => item.id === id);
+      if (!withdrawal) return;
+      withdrawal.status = status;
+      withdrawal.history = [`Estado actualizado a ${status} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
+      saveWithdrawals();
+      renderAdmin();
+    }
+
+    function requestWithdrawalInfo(id) {
+      const withdrawal = adminWithdrawals.find((item) => item.id === id);
+      if (!withdrawal) return;
+      const note = prompt("Informacion adicional solicitada:", "Comprobante de titularidad de la cuenta destino");
+      if (note === null) return;
+      withdrawal.status = "En revision";
+      withdrawal.history = [`Informacion adicional solicitada: ${note || "Sin detalle"} - ${new Date().toLocaleString()}`, ...(withdrawal.history || [])];
+      saveWithdrawals();
+      renderAdmin();
+    }
+
+    window.setWithdrawalStatus = setWithdrawalStatus;
+    window.requestWithdrawalInfo = requestWithdrawalInfo;
+
+    function defaultPromotions() {
+      return [
+        {
+          id: "CRE-3001",
+          client: "Carlos Medina",
+          account: "MT5-50021",
+          type: "Credito trading",
+          amount: 500,
+          expires: "2026-07-08",
+          lots: 8,
+          minDeposit: 1000,
+          withdrawable: "No retirable",
+          status: "Activo",
+          history: ["Credito trading aplicado"]
+        },
+        {
+          id: "BON-4001",
+          client: "Ana Torres",
+          account: "DEMO-90210",
+          type: "Bono",
+          amount: 150,
+          expires: "2026-07-15",
+          lots: 3,
+          minDeposit: 500,
+          withdrawable: "Retirable",
+          status: "Activo",
+          history: ["Bono aplicado"]
+        }
+      ];
+    }
+
+    function loadPromotions() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_promotions_v1"));
+        adminPromotions = Array.isArray(saved) && saved.length ? saved : defaultPromotions();
+      } catch (error) {
+        adminPromotions = defaultPromotions();
+      }
+    }
+
+    function savePromotions() {
+      localStorage.setItem("webtrade_admin_promotions_v1", JSON.stringify(adminPromotions));
+      queueCloudSave();
+    }
+
+    function promotionFormData() {
+      const type = $("promoType").value;
+      const prefix = type === "Bono" ? "BON" : "CRE";
+      const id = $("promoId").value.trim() || prefix + "-" + Math.floor(1000 + Math.random() * 9000);
+      return {
+        id,
+        client: $("promoClient").value.trim() || "Sin cliente",
+        account: $("promoAccount").value.trim() || "Sin cuenta",
+        type,
+        amount: Number($("promoAmount").value || 0),
+        expires: $("promoExpires").value || "Sin vencimiento",
+        lots: Number($("promoLots").value || 0),
+        minDeposit: Number($("promoMinDeposit").value || 0),
+        withdrawable: $("promoWithdrawable").value,
+        status: "Activo",
+        history: adminPromotions.find((item) => item.id === id)?.history || []
+      };
+    }
+
+    function savePromotionFromForm() {
+      const data = promotionFormData();
+      if (!data.amount || data.amount <= 0) {
+        alert("El monto debe ser mayor a cero.");
+        return;
+      }
+
+      const index = adminPromotions.findIndex((item) => item.id === data.id);
+      data.history = [`${data.type} aplicado - ${new Date().toLocaleString()}`, ...(data.history || [])];
+
+      if (index >= 0) {
+        adminPromotions[index] = data;
+      } else {
+        adminPromotions.unshift(data);
+      }
+
+      savePromotions();
+      renderAdmin();
+    }
+
+    function removePromotion(id) {
+      const promotion = adminPromotions.find((item) => item.id === id);
+      if (!promotion) return;
+      promotion.status = "Quitado";
+      promotion.history = [`${promotion.type} quitado - ${new Date().toLocaleString()}`, ...(promotion.history || [])];
+      savePromotions();
+      renderAdmin();
+    }
+
+    window.removePromotion = removePromotion;
 
     function renderLogin() {
       app.innerHTML = `
@@ -1428,9 +1658,13 @@
       if (!adminClients.length) loadAdminClients();
       if (!adminTradingAccounts.length) loadTradingAccounts();
       if (!adminDeposits.length) loadDeposits();
+      if (!adminWithdrawals.length) loadWithdrawals();
+      if (!adminPromotions.length) loadPromotions();
       const clients = adminClients;
       const tradingAccounts = adminTradingAccounts;
       const deposits = adminDeposits;
+      const adminWithdrawalRows = adminWithdrawals;
+      const adminPromotionRows = adminPromotions;
       const pendingDeposits = deposits.filter((item) => item.status === "Pendiente");
       const withdrawals = money.filter((item) => item.type === "Retiro");
       const adminUsers = [
@@ -1839,6 +2073,10 @@
                   <input id="depositReceipt" class="input" value="${firstDeposit.receipt}">
                 </div>
                 <div>
+                  <label>Adjuntar comprobante</label>
+                  <input id="depositReceiptFile" class="input" type="file" accept="image/*,.pdf">
+                </div>
+                <div>
                   <label>Fecha</label>
                   <input id="depositDate" class="input" value="${firstDeposit.date}">
                 </div>
@@ -1854,7 +2092,7 @@
                   item.status,
                   item.receipt,
                   item.date,
-                  `<button class="btn green" onclick="setDepositStatus('${item.id}', 'Confirmado')">Aprobar</button> <button class="btn red" onclick="setDepositStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                  `<button class="btn green" onclick="setDepositStatus('${item.id}', 'Confirmado')">Aprobar</button> <button class="btn red" onclick="setDepositStatus('${item.id}', 'Rechazado')">Rechazar</button> <button class="btn yellow" onclick="setDepositStatus('${item.id}', 'Pendiente')">Pendiente</button> <button class="btn blue" onclick="showDepositMethod('${item.id}')">Ver método</button>`
                 ]),
                 ["ID", "Cliente", "Cuenta", "Monto", "Método", "Estado", "Comprobante", "Fecha", "Acción"]
               )}
@@ -1879,24 +2117,160 @@
           $("depositDate").value = new Date().toLocaleString();
         };
         $("saveDepositBtn").onclick = saveDepositFromForm;
+        $("depositReceiptFile").onchange = () => {
+          const file = $("depositReceiptFile").files[0];
+          if (!file) return;
+          $("depositReceipt").value = file.name;
+        };
       }
 
       if (adminSection === "Retiros") {
-        body.innerHTML = `<div class="panel">${createTable(
-          withdrawals.map((item) => [item.type, "$" + item.amount.toFixed(2), item.status, item.time, '<span class="status">Revisar</span>']),
-          ["Tipo", "Monto", "Estado", "Fecha", "Acción"]
-        )}</div>`;
+        const firstWithdrawal = adminWithdrawalRows[0] || defaultWithdrawals()[0];
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Solicitudes de retiro</h3>
+              <div class="miniActions">
+                <button id="newWithdrawalBtn" class="btn green">Nuevo retiro</button>
+                <button id="saveWithdrawalBtn" class="btn blue">Guardar retiro</button>
+              </div>
+              <div class="formGrid">
+                <div><label>ID retiro</label><input id="withdrawalId" class="input" value="${firstWithdrawal.id}"></div>
+                <div><label>Cliente</label><input id="withdrawalClient" class="input" value="${firstWithdrawal.client}"></div>
+                <div><label>Cuenta trading</label><input id="withdrawalAccount" class="input" value="${firstWithdrawal.account}"></div>
+                <div><label>Monto</label><input id="withdrawalAmount" class="input" type="number" step="0.01" value="${firstWithdrawal.amount}"></div>
+                <div><label>Motivo del retiro</label><input id="withdrawalReason" class="input" value="${firstWithdrawal.reason}"></div>
+                <div><label>Cuenta destino</label><input id="withdrawalDestination" class="input" value="${firstWithdrawal.destination}"></div>
+                <div>
+                  <label>Método de pago</label>
+                  <select id="withdrawalMethod" class="input">
+                    ${PAYMENT_METHODS.map((method) => `<option ${firstWithdrawal.method === method ? "selected" : ""}>${method}</option>`).join("")}
+                  </select>
+                </div>
+                <div>
+                  <label>Marcar retiro como</label>
+                  <select id="withdrawalStatus" class="input">
+                    ${WITHDRAWAL_STATUSES.map((status) => `<option ${firstWithdrawal.status === status ? "selected" : ""}>${status}</option>`).join("")}
+                  </select>
+                </div>
+                <div><label>Fecha</label><input id="withdrawalDate" class="input" value="${firstWithdrawal.date}"></div>
+              </div>
+              <h3>Ver solicitudes de retiro</h3>
+              ${createTable(
+                adminWithdrawalRows.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.reason,
+                  item.destination,
+                  item.method,
+                  item.status,
+                  item.date,
+                  `<button class="btn green" onclick="setWithdrawalStatus('${item.id}', 'Aprobado')">Aprobar</button> <button class="btn blue" onclick="setWithdrawalStatus('${item.id}', 'Pagado')">Pagado</button> <button class="btn yellow" onclick="requestWithdrawalInfo('${item.id}')">Solicitar información</button> <button class="btn red" onclick="setWithdrawalStatus('${item.id}', 'Rechazado')">Rechazar</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Monto", "Motivo", "Cuenta destino", "Método", "Estado", "Fecha", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Historial de retiros</h3>
+              ${createTable(
+                adminWithdrawalRows.flatMap((item) => (item.history || []).map((event) => [item.id, item.client, item.status, event])),
+                ["ID", "Cliente", "Estado actual", "Evento"]
+              )}
+            </div>
+          </div>`;
+
+        $("newWithdrawalBtn").onclick = () => {
+          $("withdrawalId").value = "RET-" + Math.floor(1000 + Math.random() * 9000);
+          $("withdrawalClient").value = "";
+          $("withdrawalAccount").value = "";
+          $("withdrawalAmount").value = "0";
+          $("withdrawalReason").value = "";
+          $("withdrawalDestination").value = "";
+          $("withdrawalMethod").value = "Transferencia bancaria";
+          $("withdrawalStatus").value = "En revision";
+          $("withdrawalDate").value = new Date().toLocaleString();
+        };
+        $("saveWithdrawalBtn").onclick = saveWithdrawalFromForm;
       }
 
       if (adminSection === "Créditos / Bonos") {
-        body.innerHTML = `<div class="panel">${createTable(
-          [
-            ["Bono bienvenida", "30%", "Disponible", "Automático"],
-            ["Crédito temporal", "$500.00", "Inactivo", "Manual"],
-            ["Cashback volumen", "5%", "Disponible", "Mensual"]
-          ],
-          ["Nombre", "Valor", "Estado", "Aplicación"]
-        )}</div>`;
+        const firstPromotion = adminPromotionRows[0] || defaultPromotions()[0];
+        const creditHistory = adminPromotionRows
+          .filter((item) => item.type === "Credito trading")
+          .flatMap((item) => (item.history || []).map((event) => [item.id, item.client, item.status, event]));
+        const bonusHistory = adminPromotionRows
+          .filter((item) => item.type === "Bono")
+          .flatMap((item) => (item.history || []).map((event) => [item.id, item.client, item.status, event]));
+
+        body.innerHTML = `
+          <div class="adminTwoCol">
+            <div class="panel">
+              <h3>Créditos y bonificaciones</h3>
+              <div class="miniActions">
+                <button id="newPromoBtn" class="btn green">Nuevo crédito / bono</button>
+                <button id="savePromoBtn" class="btn blue">Agregar crédito o bono</button>
+              </div>
+              <div class="formGrid">
+                <div><label>ID</label><input id="promoId" class="input" value="${firstPromotion.id}"></div>
+                <div><label>Cliente</label><input id="promoClient" class="input" value="${firstPromotion.client}"></div>
+                <div><label>Cuenta trading</label><input id="promoAccount" class="input" value="${firstPromotion.account}"></div>
+                <div>
+                  <label>Tipo</label>
+                  <select id="promoType" class="input">
+                    ${PROMO_TYPES.map((type) => `<option ${firstPromotion.type === type ? "selected" : ""}>${type}</option>`).join("")}
+                  </select>
+                </div>
+                <div><label>Monto</label><input id="promoAmount" class="input" type="number" step="0.01" value="${firstPromotion.amount}"></div>
+                <div><label>Fecha de vencimiento</label><input id="promoExpires" class="input" type="date" value="${firstPromotion.expires}"></div>
+                <div><label>Lotes requeridos</label><input id="promoLots" class="input" type="number" step="0.01" value="${firstPromotion.lots}"></div>
+                <div><label>Depósito mínimo</label><input id="promoMinDeposit" class="input" type="number" step="0.01" value="${firstPromotion.minDeposit}"></div>
+                <div>
+                  <label>Retirable / no retirable</label>
+                  <select id="promoWithdrawable" class="input">
+                    ${WITHDRAWABLE_OPTIONS.map((option) => `<option ${firstPromotion.withdrawable === option ? "selected" : ""}>${option}</option>`).join("")}
+                  </select>
+                </div>
+              </div>
+              <h3>Créditos y bonos aplicados</h3>
+              ${createTable(
+                adminPromotionRows.map((item) => [
+                  item.id,
+                  item.client,
+                  item.account,
+                  item.type,
+                  "$" + Number(item.amount || 0).toFixed(2),
+                  item.expires,
+                  item.lots,
+                  "$" + Number(item.minDeposit || 0).toFixed(2),
+                  item.withdrawable,
+                  item.status,
+                  `<button class="btn red" onclick="removePromotion('${item.id}')">${item.type === "Bono" ? "Quitar bono" : "Quitar crédito"}</button>`
+                ]),
+                ["ID", "Cliente", "Cuenta", "Tipo", "Monto", "Vencimiento", "Lotes", "Depósito mínimo", "Retirable", "Estado", "Acción"]
+              )}
+            </div>
+            <div class="panel">
+              <h3>Historial de créditos aplicados</h3>
+              ${createTable(creditHistory, ["ID", "Cliente", "Estado actual", "Evento"])}
+              <h3>Historial de bonos aplicados</h3>
+              ${createTable(bonusHistory, ["ID", "Cliente", "Estado actual", "Evento"])}
+            </div>
+          </div>`;
+
+        $("newPromoBtn").onclick = () => {
+          $("promoId").value = "";
+          $("promoClient").value = "";
+          $("promoAccount").value = "";
+          $("promoType").value = "Credito trading";
+          $("promoAmount").value = "0";
+          $("promoExpires").value = "";
+          $("promoLots").value = "0";
+          $("promoMinDeposit").value = "0";
+          $("promoWithdrawable").value = "No retirable";
+        };
+        $("savePromoBtn").onclick = savePromotionFromForm;
       }
 
       if (adminSection === "Operaciones") {
@@ -2266,5 +2640,3 @@
   </script>
 </body>
 </html>
-
-
