@@ -353,6 +353,7 @@
     let adminDeposits = [];
     let adminWithdrawals = [];
     let adminPromotions = [];
+    let adminAssetSettings = [];
 
     const ASSETS = [
       ["EUR/USD", 1.0854],
@@ -405,6 +406,7 @@
       "CRM",
       "Riesgo",
       "Reportes",
+      "Configuración de activos",
       "Configuración",
       "Usuarios admin",
       "Auditoría"
@@ -591,6 +593,7 @@
       if (!adminDeposits.length) loadDeposits();
       if (!adminWithdrawals.length) loadWithdrawals();
       if (!adminPromotions.length) loadPromotions();
+      if (!adminAssetSettings.length) loadAssetSettings();
 
       return {
         balance,
@@ -602,7 +605,8 @@
         adminTradingAccounts,
         adminDeposits,
         adminWithdrawals,
-        adminPromotions
+        adminPromotions,
+        adminAssetSettings
       };
     }
 
@@ -620,6 +624,7 @@
       adminDeposits = Array.isArray(data.adminDeposits) ? data.adminDeposits : adminDeposits;
       adminWithdrawals = Array.isArray(data.adminWithdrawals) ? data.adminWithdrawals : adminWithdrawals;
       adminPromotions = Array.isArray(data.adminPromotions) ? data.adminPromotions : adminPromotions;
+      adminAssetSettings = Array.isArray(data.adminAssetSettings) ? data.adminAssetSettings : adminAssetSettings;
 
       localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
@@ -627,6 +632,7 @@
       localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
       localStorage.setItem("webtrade_admin_withdrawals_v1", JSON.stringify(adminWithdrawals));
       localStorage.setItem("webtrade_admin_promotions_v1", JSON.stringify(adminPromotions));
+      localStorage.setItem("webtrade_admin_asset_settings_v1", JSON.stringify(adminAssetSettings));
 
       cloudApplying = false;
       cloudReady = true;
@@ -1523,6 +1529,87 @@
     window.adminModifySlTp = adminModifySlTp;
     window.adminModifyPendingEntry = adminModifyPendingEntry;
 
+    function assetDomId(symbol) {
+      return String(symbol).replace(/[^a-zA-Z0-9]/g, "_");
+    }
+
+    function defaultAssetSettings() {
+      return ASSETS.map((item) => {
+        const symbol = item[0];
+        const isCrypto = symbol.includes("BTC") || symbol.includes("ETH");
+        const isMetal = symbol.includes("XAU") || symbol.includes("XAG");
+        const isFx = symbol.includes("/");
+        return {
+          symbol,
+          active: "Activo",
+          spread: isCrypto ? 35 : isMetal ? 25 : isFx ? 12 : 18,
+          hours: isCrypto ? "24/7" : "Lun-Vie 00:00-23:59",
+          commission: isCrypto ? 0.15 : isMetal ? 7 : 5,
+          swapLong: isCrypto ? -0.08 : -0.02,
+          swapShort: isCrypto ? -0.08 : 0.01,
+          minLot: isCrypto ? 0.01 : 0.01,
+          maxLot: isCrypto ? 10 : 100,
+          leverage: isCrypto ? "1:100" : isMetal ? "1:500" : "1:2000",
+          history: ["Configuración inicial"]
+        };
+      });
+    }
+
+    function loadAssetSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("webtrade_admin_asset_settings_v1"));
+        adminAssetSettings = Array.isArray(saved) && saved.length ? saved : defaultAssetSettings();
+      } catch (error) {
+        adminAssetSettings = defaultAssetSettings();
+      }
+    }
+
+    function saveAssetSettings() {
+      localStorage.setItem("webtrade_admin_asset_settings_v1", JSON.stringify(adminAssetSettings));
+      queueCloudSave();
+    }
+
+    function assetSetting(symbol) {
+      if (!adminAssetSettings.length) loadAssetSettings();
+      let setting = adminAssetSettings.find((item) => item.symbol === symbol);
+      if (!setting) {
+        setting = defaultAssetSettings().find((item) => item.symbol === symbol) || {
+          symbol,
+          active: "Activo",
+          spread: 10,
+          hours: "Lun-Vie 00:00-23:59",
+          commission: 0,
+          swapLong: 0,
+          swapShort: 0,
+          minLot: 0.01,
+          maxLot: 100,
+          leverage: "1:500",
+          history: []
+        };
+        adminAssetSettings.push(setting);
+      }
+      return setting;
+    }
+
+    function updateAssetSetting(symbol) {
+      const key = assetDomId(symbol);
+      const setting = assetSetting(symbol);
+      setting.active = $("assetActive_" + key).value;
+      setting.spread = Number($("assetSpread_" + key).value || 0);
+      setting.hours = $("assetHours_" + key).value.trim() || "Sin horario";
+      setting.commission = Number($("assetCommission_" + key).value || 0);
+      setting.swapLong = Number($("assetSwapLong_" + key).value || 0);
+      setting.swapShort = Number($("assetSwapShort_" + key).value || 0);
+      setting.minLot = Number($("assetMinLot_" + key).value || 0);
+      setting.maxLot = Number($("assetMaxLot_" + key).value || 0);
+      setting.leverage = $("assetLeverage_" + key).value;
+      setting.history = [`Configuración actualizada - ${new Date().toLocaleString()}`, ...(setting.history || [])];
+      saveAssetSettings();
+      renderAdmin();
+    }
+
+    window.updateAssetSetting = updateAssetSetting;
+
     function renderLogin() {
       app.innerHTML = `
         <div class="login">
@@ -1732,11 +1819,13 @@
       if (!adminDeposits.length) loadDeposits();
       if (!adminWithdrawals.length) loadWithdrawals();
       if (!adminPromotions.length) loadPromotions();
+      if (!adminAssetSettings.length) loadAssetSettings();
       const clients = adminClients;
       const tradingAccounts = adminTradingAccounts;
       const deposits = adminDeposits;
       const adminWithdrawalRows = adminWithdrawals;
       const adminPromotionRows = adminPromotions;
+      const assetSettings = ASSETS.map((item) => assetSetting(item[0]));
       const pendingDeposits = deposits.filter((item) => item.status === "Pendiente");
       const withdrawals = money.filter((item) => item.type === "Retiro");
       const adminUsers = [
@@ -2482,6 +2571,40 @@
           ],
           ["Reporte", "Formato", "Periodo", "Estado"]
         )}</div>`;
+      }
+
+      if (adminSection === "Configuración de activos") {
+        body.innerHTML = `
+          <div class="panel">
+            <h3>Configuración de activos</h3>
+            <p style="color:#5a6e8a;font-size:12px">Activa o desactiva instrumentos y define spread visual, horario, comisión, swap, lotaje mínimo/máximo y apalancamiento por instrumento.</p>
+            ${createTable(
+              assetSettings.map((item) => {
+                const key = assetDomId(item.symbol);
+                return [
+                  item.symbol,
+                  `<select id="assetActive_${key}" class="input"><option ${item.active === "Activo" ? "selected" : ""}>Activo</option><option ${item.active === "Inactivo" ? "selected" : ""}>Inactivo</option></select>`,
+                  `<input id="assetSpread_${key}" class="input" type="number" step="0.01" value="${item.spread}">`,
+                  `<input id="assetHours_${key}" class="input" value="${item.hours}">`,
+                  `<input id="assetCommission_${key}" class="input" type="number" step="0.01" value="${item.commission}">`,
+                  `<input id="assetSwapLong_${key}" class="input" type="number" step="0.01" value="${item.swapLong}">`,
+                  `<input id="assetSwapShort_${key}" class="input" type="number" step="0.01" value="${item.swapShort}">`,
+                  `<input id="assetMinLot_${key}" class="input" type="number" step="0.01" value="${item.minLot}">`,
+                  `<input id="assetMaxLot_${key}" class="input" type="number" step="0.01" value="${item.maxLot}">`,
+                  `<select id="assetLeverage_${key}" class="input">${LEVERAGES.map((leverage) => `<option ${item.leverage === leverage ? "selected" : ""}>${leverage}</option>`).join("")}</select>`,
+                  `<button class="btn blue" onclick="updateAssetSetting('${item.symbol}')">Guardar</button>`
+                ];
+              }),
+              ["Activo", "Activar / desactivar", "Spread visual", "Horario de operación", "Comisión", "Swap long", "Swap short", "Lote mínimo", "Lote máximo", "Apalancamiento", "Acción"]
+            )}
+          </div>
+          <div class="panel">
+            <h3>Historial de configuración</h3>
+            ${createTable(
+              assetSettings.flatMap((item) => (item.history || []).map((event) => [item.symbol, item.active, item.leverage, event])),
+              ["Activo", "Estado", "Apalancamiento", "Evento"]
+            )}
+          </div>`;
       }
 
       if (adminSection === "Configuración") {
