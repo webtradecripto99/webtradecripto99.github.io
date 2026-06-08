@@ -374,6 +374,8 @@
 
     const ADVISORS = ["Sin asignar", "Laura Vega", "Mario Ruiz", "Sofia Nieto", "Diego Ramos"];
     const CLIENT_STATUSES = ["Activo", "Pendiente", "Bloqueado", "Suspendido"];
+    const CRM_STAGES = ["Nuevo", "Contactado", "Registrado", "Demo", "FTD", "Activo", "Dorman"];
+    const COMMERCIAL_TAGS = ["Alto valor", "Seguimiento urgente", "Interesado cripto", "Retención", "VIP", "KYC pendiente", "FTD pendiente"];
     const KYC_STATUSES = ["No iniciado", "Pendiente", "Verificado", "Rechazado"];
     const ACCESS_STATUSES = ["Habilitado", "Deshabilitado", "Bloqueado", "Pendiente activación"];
     const ACCOUNT_TYPES = ["Standard", "Pro", "VIP", "Demo"];
@@ -940,7 +942,12 @@
         ip: $("clientIp").value.trim() || "Sin registro",
         device: $("clientDevice").value.trim() || "Sin registro",
         lastAccess: $("clientLastAccess").value.trim() || "Sin acceso",
-        history: selectedClient()?.id === id ? selectedClient().history : ["Cliente creado"]
+        history: selectedClient()?.id === id ? selectedClient().history : ["Cliente creado"],
+        crmStage: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).crmStage : "Nuevo",
+        crmNotes: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).crmNotes : "",
+        nextFollowUp: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).nextFollowUp : "",
+        contactHistory: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).contactHistory : ["Cliente creado"],
+        commercialTags: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).commercialTags : []
       };
     }
 
@@ -984,6 +991,52 @@
       }
       renderAdmin();
     }
+
+    function ensureCrmFields(client) {
+      if (!client) return {};
+      const stageByStatus = {
+        Activo: "Activo",
+        Pendiente: "Nuevo",
+        Bloqueado: "Dorman",
+        Suspendido: "Dorman"
+      };
+      client.crmStage = CRM_STAGES.includes(client.crmStage) ? client.crmStage : stageByStatus[client.status] || "Nuevo";
+      client.crmNotes = client.crmNotes || "";
+      client.nextFollowUp = client.nextFollowUp || "";
+      client.advisor = client.advisor || "Sin asignar";
+      client.contactHistory = Array.isArray(client.contactHistory) && client.contactHistory.length ? client.contactHistory : (client.history || ["Registro inicial CRM"]);
+      client.commercialTags = Array.isArray(client.commercialTags) ? client.commercialTags : String(client.commercialTags || "").split(",").map((tag) => tag.trim()).filter(Boolean);
+      return client;
+    }
+
+    async function saveCrmClient(id) {
+      const client = adminClients.find((item) => item.id === id);
+      if (!client) return;
+      client.crmStage = $("crmStage_" + id).value;
+      client.crmNotes = $("crmNotes_" + id).value.trim();
+      client.nextFollowUp = $("crmFollow_" + id).value.trim();
+      client.advisor = $("crmAdvisor_" + id).value;
+      client.commercialTags = $("crmTags_" + id).value.split(",").map((tag) => tag.trim()).filter(Boolean);
+      client.contactHistory = [`CRM actualizado - ${new Date().toLocaleString()}`, ...(client.contactHistory || [])];
+      saveAdminClients();
+      await saveCloudState();
+      renderAdmin();
+    }
+
+    async function addCrmContact(id) {
+      const client = adminClients.find((item) => item.id === id);
+      if (!client) return;
+      const note = prompt("Detalle del contacto o seguimiento:");
+      if (!note) return;
+      ensureCrmFields(client);
+      client.contactHistory = [`${note} - ${new Date().toLocaleString()}`, ...(client.contactHistory || [])];
+      saveAdminClients();
+      await saveCloudState();
+      renderAdmin();
+    }
+
+    window.saveCrmClient = saveCrmClient;
+    window.addCrmContact = addCrmContact;
 
     function selectClient(id) {
       selectedClientId = id;
@@ -2659,14 +2712,44 @@
       }
 
       if (adminSection === "CRM") {
-        body.innerHTML = `<div class="panel">${createTable(
-          [
-            ["Carlos Medina", "Llamada seguimiento", "Hoy", "Abierto"],
-            ["Ana Torres", "KYC incompleto", "Hoy", "Pendiente"],
-            ["Luis Romero", "Oferta bono", "Mañana", "Programado"]
-          ],
-          ["Cliente", "Actividad", "Fecha", "Estado"]
-        )}</div>`;
+        const crmClients = adminClients.map(ensureCrmFields);
+        const stageRows = CRM_STAGES.map((stage) => [
+          stage,
+          crmClients.filter((client) => client.crmStage === stage).length,
+          crmClients.filter((client) => client.crmStage === stage).map((client) => client.name).join(", ") || "-"
+        ]);
+        body.innerHTML = `
+          <div class="adminGrid">
+            <div class="adminCard"><small>Lista de leads/clientes</small><b>${crmClients.length}</b></div>
+            <div class="adminCard"><small>Contactado</small><b>${crmClients.filter((client) => client.crmStage === "Contactado").length}</b></div>
+            <div class="adminCard"><small>FTD</small><b>${crmClients.filter((client) => client.crmStage === "FTD").length}</b></div>
+            <div class="adminCard"><small>Activo</small><b>${crmClients.filter((client) => client.crmStage === "Activo").length}</b></div>
+          </div>
+          <div class="panel">
+            <h3>CRM interno</h3>
+            ${createTable(
+              crmClients.map((client) => [
+                client.id,
+                `<b>${client.name}</b><br><small>${client.email || "-"} · ${client.phone || "-"}</small>`,
+                `<select id="crmStage_${client.id}" class="input">${CRM_STAGES.map((stage) => `<option ${client.crmStage === stage ? "selected" : ""}>${stage}</option>`).join("")}</select>`,
+                `<textarea id="crmNotes_${client.id}" class="input" rows="2" placeholder="Notas internas">${client.crmNotes || ""}</textarea>`,
+                `<input id="crmFollow_${client.id}" class="input" value="${client.nextFollowUp || ""}" placeholder="Próximo seguimiento">`,
+                `<select id="crmAdvisor_${client.id}" class="input">${ADVISORS.map((advisor) => `<option ${client.advisor === advisor ? "selected" : ""}>${advisor}</option>`).join("")}</select>`,
+                `<input id="crmTags_${client.id}" class="input" value="${(client.commercialTags || []).join(", ")}" placeholder="Etiquetas comerciales">`,
+                (client.contactHistory || []).slice(0, 3).map((event) => `<div class="item">${event}</div>`).join(""),
+                `<button class="btn blue" onclick="saveCrmClient('${client.id}')">Guardar</button> <button class="btn green" onclick="addCrmContact('${client.id}')">Registrar contacto</button>`
+              ]),
+              ["ID", "Lead / Cliente", "Etapa del cliente", "Notas internas", "Próximo seguimiento", "Ejecutivo asignado", "Etiquetas comerciales", "Historial de contacto", "Acciones"]
+            )}
+          </div>
+          <div class="panel">
+            <h3>Resumen por etapa</h3>
+            ${createTable(stageRows, ["Etapa", "Total", "Clientes"])}
+          </div>
+          <div class="panel">
+            <h3>Catálogo de etiquetas comerciales</h3>
+            ${createTable(COMMERCIAL_TAGS.map((tag) => [tag]), ["Etiqueta"])}
+          </div>`;
       }
 
       if (adminSection === "Riesgo") {
