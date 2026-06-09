@@ -1247,23 +1247,25 @@
     window.saveCrmClient = saveCrmClient;
     window.addCrmContact = addCrmContact;
 
-    function createClientTradingAccount(client) {
+    function createClientTradingAccount(client, type = "Demo", leverage = "1:500", tradingPassword = "Trading123") {
       if (!client) return null;
       if (!adminTradingAccounts.length) loadTradingAccounts();
-      const existing = adminTradingAccounts.find((account) => account.client === client.name);
+      const existing = adminTradingAccounts.find((account) => account.client === client.name && account.type === type);
       if (existing) return existing;
       const account = {
         id: "MT5-" + Math.floor(10000 + Math.random() * 90000),
         client: client.name,
-        type: "Demo",
+        type,
         active: "Activa",
-        leverage: "1:500",
+        leverage,
         balance: moneyValue(client.balance),
         equity: moneyValue(client.balance),
         usedMargin: 0,
         freeMargin: moneyValue(client.balance),
         blockOpen: "No",
         closeOnly: "No",
+        tradingPassword,
+        history: [`Cuenta ${type.toLowerCase()} creada - ${new Date().toLocaleString()}`],
         lastUpdate: new Date().toLocaleString()
       };
       adminTradingAccounts.unshift(account);
@@ -1531,9 +1533,17 @@
       return adminTradingAccounts.filter((account) => account.client === client.name);
     }
 
+    function ensureTradingAccountPortalFields(account) {
+      if (!account) return account;
+      account.tradingPassword = account.tradingPassword || "Trading123";
+      account.history = Array.isArray(account.history) ? account.history : [`Cuenta ${account.type || "trading"} disponible - ${new Date().toLocaleString()}`];
+      account.lastUpdate = account.lastUpdate || new Date().toLocaleString();
+      return account;
+    }
+
     function defaultClientTradingAccount(client = loggedClient()) {
       const accounts = clientTradingAccounts(client);
-      return accounts.find((account) => account.active === "Activa") || accounts[0] || null;
+      return ensureTradingAccountPortalFields(accounts.find((account) => account.active === "Activa") || accounts[0] || null);
     }
 
     function currentTradingAccount() {
@@ -1545,10 +1555,10 @@
         const selected = accounts.find((account) => account.id === selectedTradingAccountId);
         const account = selected || defaultClientTradingAccount(client);
         selectedTradingAccountId = account?.id || "";
-        return account;
+        return ensureTradingAccountPortalFields(account);
       }
 
-      return selectedTradingAccount();
+      return ensureTradingAccountPortalFields(selectedTradingAccount());
     }
 
     function normalizeOperationOwnership(item) {
@@ -2316,19 +2326,22 @@
       const equity = currentBalance + totalPnl();
       const margin = usedMargin();
       const free = freeMargin();
+      const marginLevel = margin > 0 ? (equity / margin) * 100 : 0;
+      const floatingPnl = totalPnl();
 
       app.innerHTML = `
         <div class="app">
           <div class="top">
             <div>
               <b style="color:#00d4a0">WEBTRADE</b><br>
-              <small>${currentClient ? currentClient.name : "Cliente"}</small><br>
+              <small>Dashboard · ${currentClient ? currentClient.name : "Cliente"}</small><br>
               <button id="outBtn" class="btn red">CERRAR SESIÓN</button>
             </div>
 
             <div>
-              <button id="depBtn" class="btn green">+$ DEPÓSITO</button>
-              <button id="retBtn" class="btn yellow">-$ RETIRO</button>
+              <button id="depBtn" class="btn green">SOLICITAR DEPÓSITO</button>
+              <button id="retBtn" class="btn yellow">SOLICITAR RETIRO</button>
+              <button id="accountsBtn" class="btn green">CUENTAS</button>
               <button id="profileBtn" class="btn blue">PERFIL</button>
               <select id="tradeAccountSelect" class="input" style="margin-top:8px">
                 ${tradeAccounts.map((account) => `<option value="${account.id}" ${account.id === currentAccount?.id ? "selected" : ""}>${account.id} · ${account.type} · ${account.active}</option>`).join("")}
@@ -2338,14 +2351,15 @@
             <div>
               ${[
                 ["Balance", currentBalance],
-                ["Equity", equity],
-                ["Margin", margin],
-                ["Free Margin", free],
-                ["P&L", totalPnl()]
+                ["Equidad", equity],
+                ["Margen utilizado", margin],
+                ["Margen libre", free],
+                ["Nivel de margen (%)", marginLevel],
+                ["Ganancia/Pérdida flotante", floatingPnl]
               ]
                 .map(
                   ([label, value]) =>
-                    `<span class="metric"><small>${label}</small><b>$${value.toFixed(2)}</b></span>`
+                    `<span class="metric"><small>${label}</small><b>${label.includes("%") ? value.toFixed(2) + "%" : "$" + value.toFixed(2)}</b></span>`
                 )
                 .join("")}
             </div>
@@ -2425,6 +2439,7 @@
       };
       $("depBtn").onclick = () => moneyForm("Depósito");
       $("retBtn").onclick = () => moneyForm("Retiro");
+      $("accountsBtn").onclick = renderClientAccounts;
       $("profileBtn").onclick = renderClientProfile;
       if ($("tradeAccountSelect")) {
         $("tradeAccountSelect").onchange = (event) => {
@@ -3814,10 +3829,23 @@
 
       if (tab === "money") {
         $("tabMoney").classList.add("active");
-        box.innerHTML = createTable(
-          money.map((item) => [item.type, "$" + item.amount.toFixed(2), item.status, item.time]),
-          ["Tipo", "Monto", "Estado", "Fecha"]
-        );
+        const rows = scopedMoney();
+        box.innerHTML = `
+          <div class="item">
+            <b>Historial de movimientos</b><br>
+            <small>Estado de cada solicitud y métodos de pago disponibles</small>
+          </div>
+          ${createTable(
+            rows.map((item) => [
+              item.type,
+              item.account || item.accountId || "-",
+              "$" + Number(item.amount || 0).toFixed(2),
+              item.method || "-",
+              item.status || "-",
+              item.time || "-"
+            ]),
+            ["Tipo", "Cuenta", "Monto", "Método de pago", "Estado de cada solicitud", "Fecha"]
+          )}`;
       }
 
       box.querySelectorAll("[data-close]").forEach((button) => {
@@ -3851,18 +3879,175 @@
       render();
     }
 
+    function accountMarginLevel(account = currentTradingAccount()) {
+      if (!account) return 0;
+      const used = Number(account.usedMargin || 0);
+      const equityValue = Number(account.equity || account.balance || 0);
+      return used > 0 ? (equityValue / used) * 100 : 0;
+    }
+
+    function accountFloatingPnl(account = currentTradingAccount()) {
+      if (!account) return 0;
+      updateFloatingPnl();
+      return positions
+        .filter((item) => positionBelongsToAccount(item, account) && item.status !== "Pendiente")
+        .reduce((sum, item) => sum + Number(item.pnl || 0), 0);
+    }
+
+    function createClientAccountFromPortal(type) {
+      const client = ensureClientPortalFields(loggedClient());
+      if (!client) return;
+      const leverage = $("portalLeverage").value;
+      const tradingPassword = $("portalTradingPassword").value.trim() || "Trading123";
+      const account = createClientTradingAccount(client, type, leverage, tradingPassword);
+      ensureTradingAccountPortalFields(account);
+      account.leverage = leverage;
+      account.tradingPassword = tradingPassword;
+      account.history = [`Crear cuenta ${type.toLowerCase()} - ${new Date().toLocaleString()}`, ...(account.history || [])];
+      account.lastUpdate = new Date().toLocaleString();
+      selectedTradingAccountId = account.id;
+      saveTradingAccounts();
+      saveSession("trade", loggedClientId);
+      renderClientAccounts();
+    }
+
+    function saveClientAccountSettings() {
+      const account = currentTradingAccount();
+      if (!account) return;
+      account.leverage = $("portalLeverage").value;
+      const nextPassword = $("portalTradingPassword").value.trim();
+      if (nextPassword) account.tradingPassword = nextPassword;
+      account.history = [`Seleccionar apalancamiento / cambiar contraseña de trading - ${new Date().toLocaleString()}`, ...(account.history || [])];
+      account.lastUpdate = new Date().toLocaleString();
+      saveTradingAccounts();
+      renderClientAccounts();
+    }
+
+    function renderClientAccounts() {
+      const client = ensureClientPortalFields(loggedClient());
+      if (!client) {
+        page = "login";
+        render();
+        return;
+      }
+      let accounts = clientTradingAccounts(client).map(ensureTradingAccountPortalFields);
+      let account = currentTradingAccount() || accounts[0];
+      if (!account) {
+        account = createClientTradingAccount(client);
+        accounts = clientTradingAccounts(client).map(ensureTradingAccountPortalFields);
+      }
+      selectedTradingAccountId = account?.id || selectedTradingAccountId;
+      const historyRows = accounts.flatMap((item) =>
+        (item.history || []).slice(0, 6).map((historyItem) => [
+          item.id,
+          item.type || "-",
+          item.leverage || "-",
+          historyItem
+        ])
+      );
+      const metricRows = [
+        ["Balance", Number(account?.balance || 0)],
+        ["Equidad", Number(account?.equity || account?.balance || 0)],
+        ["Margen utilizado", Number(account?.usedMargin || 0)],
+        ["Margen libre", Number(account?.freeMargin || 0)],
+        ["Nivel de margen (%)", accountMarginLevel(account)],
+        ["Ganancia/Pérdida flotante", accountFloatingPnl(account)]
+      ];
+
+      app.innerHTML = `
+        <div class="app">
+          <div class="top">
+            <button id="accountsBack" class="btn blue">VOLVER</button>
+            <b>Gestión de cuentas</b>
+            <span class="metric"><small>Cuenta activa</small><b>${account?.id || "-"}</b></span>
+          </div>
+          <div class="adminGrid">
+            ${metricRows.map(([label, value]) => `<div class="adminCard"><small>${label}</small><b>${label.includes("%") ? value.toFixed(2) + "%" : "$" + value.toFixed(2)}</b></div>`).join("")}
+          </div>
+          <div class="panel">
+            <h3>Gestión de cuentas</h3>
+            <div class="formGrid">
+              <div>
+                <label>Cuenta</label>
+                <select id="portalAccount" class="input">
+                  ${accounts.map((item) => `<option value="${item.id}" ${item.id === account?.id ? "selected" : ""}>${item.id} · ${item.type} · ${item.active}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label>Seleccionar apalancamiento</label>
+                <select id="portalLeverage" class="input">
+                  ${LEVERAGES.map((item) => `<option ${account?.leverage === item ? "selected" : ""}>${item}</option>`).join("")}
+                </select>
+              </div>
+              <div>
+                <label>Cambiar contraseña de trading</label>
+                <input id="portalTradingPassword" class="input" type="password" placeholder="Nueva contraseña de trading">
+              </div>
+              <div>
+                <label>Ver historial de cuentas</label>
+                <b>${accounts.length} cuenta(s) disponibles</b>
+              </div>
+            </div>
+            <br>
+            <button id="createDemoAccount" class="btn green">Crear cuenta demo</button>
+            <button id="createRealAccount" class="btn blue">Crear cuenta real</button>
+            <button id="saveAccountSettings" class="btn yellow">Guardar configuración</button>
+          </div>
+          <div class="panel">
+            <h3>Ver historial de cuentas</h3>
+            <div class="scroll">${createTable(historyRows, ["Cuenta", "Tipo", "Apalancamiento", "Evento"])}</div>
+          </div>
+        </div>`;
+
+      $("accountsBack").onclick = render;
+      if ($("portalAccount")) {
+        $("portalAccount").onchange = (event) => {
+          selectedTradingAccountId = event.target.value;
+          saveSession("trade", loggedClientId);
+          renderClientAccounts();
+        };
+      }
+      $("createDemoAccount").onclick = () => createClientAccountFromPortal("Demo");
+      $("createRealAccount").onclick = () => createClientAccountFromPortal("Real");
+      $("saveAccountSettings").onclick = saveClientAccountSettings;
+    }
+
+    function scopedMoney() {
+      if (page !== "trade") return money;
+      const account = currentTradingAccount();
+      return money.filter((item) => {
+        if (item.accountId) return account && item.accountId === account.id;
+        if (item.clientId) return item.clientId === loggedClientId;
+        return false;
+      });
+    }
+
     function moneyForm(type) {
+      const account = currentTradingAccount();
+      const client = ensureClientPortalFields(loggedClient());
       app.innerHTML = `
         <div class="app">
           <div class="top">
             <button id="backBtn" class="btn blue">VOLVER</button>
             <b>${type}</b>
+            <span class="metric"><small>Cuenta</small><b>${account?.id || "Sin cuenta"}</b></span>
           </div>
           <div class="login">
-            <div class="panel" style="width:420px">
-              <h3>Solicitud de ${type}</h3>
-              <input id="amt" class="input" type="number" placeholder="Monto USD">
-              <br><br>
+            <div class="panel" style="width:520px">
+              <h3>Solicitar ${type.toLowerCase()}</h3>
+              <div class="formGrid">
+                <div><label>Cuenta</label><input class="input" value="${account?.id || "Sin cuenta"}" disabled></div>
+                <div><label>Monto USD</label><input id="amt" class="input" type="number" placeholder="Monto USD"></div>
+                <div>
+                  <label>Métodos de pago disponibles</label>
+                  <select id="moneyMethod" class="input">
+                    ${PAYMENT_METHODS.map((method) => `<option>${method}</option>`).join("")}
+                  </select>
+                </div>
+                <div><label>Referencia / cuenta destino</label><input id="moneyReference" class="input" placeholder="${type === "Retiro" ? "Cuenta destino" : "Referencia del pago"}"></div>
+                <div><label>Estado de cada solicitud</label><b>${type === "Depósito" ? "Pendiente de autorización" : "Solicitud pendiente"}</b></div>
+              </div>
+              <br>
               <button id="okBtn" class="btn green" style="width:100%;padding:12px">CONFIRMAR</button>
             </div>
           </div>
@@ -3876,6 +4061,12 @@
         money.unshift({
           type,
           amount,
+          method: $("moneyMethod").value,
+          reference: $("moneyReference").value.trim(),
+          accountId: account?.id || null,
+          account: account?.id || "Sin cuenta",
+          clientId: client?.id || null,
+          clientName: client?.name || account?.client || "Sin cliente",
           status: type === "Depósito" ? "Pendiente de autorización" : "Solicitud pendiente",
           time: new Date().toLocaleString()
         });
