@@ -14,6 +14,12 @@ const ALLOWED_SYMBOLS = [
 
 const ALLOWED_INTERVALS = ["1min", "5min", "15min", "30min", "1h", "4h", "1day"];
 
+const MARKET_CACHE_MIN_MS = 15000;
+const MARKET_CACHE_MAX_MS = 60000;
+const MARKET_CACHE_DEFAULT_MS = 30000;
+const marketResponseCache = new Map();
+const marketPendingRequests = new Map();
+
 const MARKET_ERROR_MESSAGES = {
   API_KEY_MISSING: "El servicio de mercado no esta configurado. Contacta a soporte.",
   PROVIDER_UNSUPPORTED: "El proveedor de datos de mercado no esta disponible.",
@@ -47,6 +53,53 @@ function marketError(code, developerMessage, details = {}) {
 
 function logMarketError(context, payload) {
   console.error("[market-data]", context, JSON.stringify(payload));
+}
+
+function marketCacheTtlMs() {
+  const configured = Number(process.env.MARKET_DATA_CACHE_MS || MARKET_CACHE_DEFAULT_MS);
+  if (!Number.isFinite(configured)) return MARKET_CACHE_DEFAULT_MS;
+  return Math.min(MARKET_CACHE_MAX_MS, Math.max(MARKET_CACHE_MIN_MS, configured));
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function marketCacheKey(endpoint, params) {
+  const safeParams = Array.from(params.entries())
+    .filter(([key]) => key !== "apikey")
+    .sort(([a], [b]) => a.localeCompare(b));
+  return endpoint + "?" + new URLSearchParams(safeParams).toString();
+}
+
+function cachedMarketResponse(cacheKey) {
+  const entry = marketResponseCache.get(cacheKey);
+  if (!entry) return null;
+
+  if (Date.now() > entry.expiresAt) {
+    marketResponseCache.delete(cacheKey);
+    return null;
+  }
+
+  return {
+    ok: true,
+    statusCode: entry.statusCode,
+    payload: cloneJson(entry.payload),
+    cache: {
+      hit: true,
+      key: cacheKey,
+      expiresAt: entry.expiresAt
+    }
+  };
+}
+
+function storeMarketResponse(cacheKey, result) {
+  if (!result.ok) return;
+  marketResponseCache.set(cacheKey, {
+    statusCode: result.statusCode,
+    payload: cloneJson(result.payload),
+    expiresAt: Date.now() + marketCacheTtlMs()
+  });
 }
 
 function getQuery(req) {
@@ -122,7 +175,7 @@ function classifyProviderError(data = {}, statusCode = 502) {
   return "PROVIDER_ERROR";
 }
 
-async function callTwelveData(endpoint, params) {
+async function fetchTwelveData(endpoint, params) {
   const url = `${TWELVE_DATA_BASE_URL}/${endpoint}?${params.toString()}`;
   let response;
   let data;
@@ -154,6 +207,45 @@ async function callTwelveData(endpoint, params) {
   }
 
   return { ok: true, statusCode: 200, payload: data };
+}
+
+async function callTwelveData(endpoint, params) {
+  const cacheKey = marketCacheKey(endpoint, params);
+  const cached = cachedMarketResponse(cacheKey);
+  if (cached) return cached;
+
+  if (marketPendingRequests.has(cacheKey)) {
+    const result = await marketPendingRequests.get(cacheKey);
+    return {
+      ...result,
+      payload: cloneJson(result.payload),
+      cache: {
+        ...(result.cache || {}),
+        deduped: true,
+        key: cacheKey
+      }
+    };
+  }
+
+  const request = fetchTwelveData(endpoint, params)
+    .then((result) => {
+      storeMarketResponse(cacheKey, result);
+      return {
+        ...result,
+        payload: cloneJson(result.payload),
+        cache: {
+          hit: false,
+          key: cacheKey,
+          ttlMs: result.ok ? marketCacheTtlMs() : 0
+        }
+      };
+    })
+    .finally(() => {
+      marketPendingRequests.delete(cacheKey);
+    });
+
+  marketPendingRequests.set(cacheKey, request);
+  return request;
 }
 
 function cleanNumber(value) {
