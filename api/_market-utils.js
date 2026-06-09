@@ -14,10 +14,39 @@ const ALLOWED_SYMBOLS = [
 
 const ALLOWED_INTERVALS = ["1min", "5min", "15min", "30min", "1h", "4h", "1day"];
 
+const MARKET_ERROR_MESSAGES = {
+  API_KEY_MISSING: "El servicio de mercado no esta configurado. Contacta a soporte.",
+  PROVIDER_UNSUPPORTED: "El proveedor de datos de mercado no esta disponible.",
+  SYMBOL_NOT_ALLOWED: "Este simbolo no esta disponible para operar en este momento.",
+  INTERVAL_NOT_ALLOWED: "Esta temporalidad no esta disponible para este simbolo.",
+  RATE_LIMIT: "El proveedor de mercado recibio demasiadas solicitudes. Intenta de nuevo en unos minutos.",
+  NETWORK_ERROR: "No pudimos conectar con el proveedor de mercado. Revisa la conexion e intenta de nuevo.",
+  SYMBOL_UNAVAILABLE: "No hay datos disponibles para este simbolo en este momento.",
+  INTERVAL_UNAVAILABLE: "No hay datos disponibles para esta temporalidad.",
+  MARKET_CLOSED: "El mercado parece estar cerrado o sin cotizacion reciente.",
+  EMPTY_RESPONSE: "El proveedor no devolvio datos de mercado para esta consulta.",
+  PROVIDER_ERROR: "No pudimos cargar datos de mercado en este momento."
+};
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify(payload));
+}
+
+function marketError(code, developerMessage, details = {}) {
+  return {
+    error: "Market data error.",
+    code,
+    provider: "twelvedata",
+    userMessage: MARKET_ERROR_MESSAGES[code] || MARKET_ERROR_MESSAGES.PROVIDER_ERROR,
+    developerMessage,
+    details
+  };
+}
+
+function logMarketError(context, payload) {
+  console.error("[market-data]", context, JSON.stringify(payload));
 }
 
 function getQuery(req) {
@@ -43,55 +72,84 @@ function getProvider() {
 function validateProvider(res) {
   const provider = getProvider();
   if (provider === "twelvedata") return true;
-  sendJson(res, 400, {
-    error: "Unsupported market data provider.",
-    provider
-  });
+  const payload = marketError("PROVIDER_UNSUPPORTED", "Unsupported market data provider.", { provider });
+  logMarketError("validateProvider", payload);
+  sendJson(res, 400, payload);
   return false;
 }
 
 function getApiKey(res) {
   const apiKey = process.env.TWELVE_DATA_API_KEY;
   if (apiKey) return apiKey;
-  sendJson(res, 500, { error: "Market data API key is not configured." });
+  const payload = marketError("API_KEY_MISSING", "TWELVE_DATA_API_KEY is not configured.");
+  logMarketError("getApiKey", payload);
+  sendJson(res, 500, payload);
   return null;
 }
 
 function validateSymbol(symbol, res) {
   if (ALLOWED_SYMBOLS.includes(symbol)) return true;
-  sendJson(res, 400, {
-    error: "Symbol is not allowed.",
+  const payload = marketError("SYMBOL_NOT_ALLOWED", "Symbol is not in ALLOWED_SYMBOLS.", {
     symbol,
     allowedSymbols: ALLOWED_SYMBOLS
   });
+  logMarketError("validateSymbol", payload);
+  sendJson(res, 400, payload);
   return false;
 }
 
 function validateInterval(interval, res) {
   if (ALLOWED_INTERVALS.includes(interval)) return true;
-  sendJson(res, 400, {
-    error: "Interval is not allowed.",
+  const payload = marketError("INTERVAL_NOT_ALLOWED", "Interval is not in ALLOWED_INTERVALS.", {
     interval,
     allowedIntervals: ALLOWED_INTERVALS
   });
+  logMarketError("validateInterval", payload);
+  sendJson(res, 400, payload);
   return false;
+}
+
+function classifyProviderError(data = {}, statusCode = 502) {
+  const message = String(data.message || data.detail || data.error || data.status || "").toLowerCase();
+  const code = String(data.code || "").toLowerCase();
+
+  if (statusCode === 429 || message.includes("too many") || message.includes("rate limit") || message.includes("api credits") || message.includes("quota") || message.includes("run out") || code === "429") {
+    return "RATE_LIMIT";
+  }
+  if (message.includes("symbol") || message.includes("instrument")) return "SYMBOL_UNAVAILABLE";
+  if (message.includes("interval") || message.includes("timeframe")) return "INTERVAL_UNAVAILABLE";
+  if (message.includes("market closed") || message.includes("market is closed") || message.includes("exchange closed")) return "MARKET_CLOSED";
+  return "PROVIDER_ERROR";
 }
 
 async function callTwelveData(endpoint, params) {
   const url = `${TWELVE_DATA_BASE_URL}/${endpoint}?${params.toString()}`;
-  const response = await fetch(url);
-  const data = await response.json();
+  let response;
+  let data;
+
+  try {
+    response = await fetch(url);
+    data = await response.json();
+  } catch (error) {
+    const payload = marketError("NETWORK_ERROR", error.message || "Fetch to Twelve Data failed.", { endpoint });
+    logMarketError("callTwelveData.network", payload);
+    return { ok: false, statusCode: 503, payload };
+  }
 
   if (!response.ok || data.status === "error" || data.code || data.message === "error") {
     const message = data.message || data.detail || "Twelve Data request failed.";
+    const code = classifyProviderError(data, response.status);
+    const payload = marketError(code, message, {
+      endpoint,
+      httpStatus: response.status,
+      providerCode: data.code || null,
+      providerStatus: data.status || null
+    });
+    logMarketError("callTwelveData.provider", payload);
     return {
       ok: false,
-      statusCode: response.ok ? 502 : response.status,
-      payload: {
-        error: "Market data provider error.",
-        provider: "twelvedata",
-        message
-      }
+      statusCode: code === "RATE_LIMIT" ? 429 : response.ok ? 502 : response.status,
+      payload
     };
   }
 
@@ -137,11 +195,19 @@ function normalizeTwelveDataCandles(data) {
 }
 
 function cleanHistory(data, symbol, interval) {
+  const values = normalizeTwelveDataCandles(data);
+  if (!values.length) {
+    throw Object.assign(new Error("Twelve Data returned an empty values array."), {
+      marketCode: "EMPTY_RESPONSE",
+      details: { symbol, interval }
+    });
+  }
+
   return {
     provider: "twelvedata",
     symbol,
     interval,
-    values: normalizeTwelveDataCandles(data)
+    values
   };
 }
 
@@ -169,6 +235,8 @@ module.exports = {
   cleanQuote,
   getApiKey,
   getQuery,
+  logMarketError,
+  marketError,
   normalizeTwelveDataCandles,
   safeParam,
   sendJson,
