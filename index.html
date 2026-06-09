@@ -8,7 +8,7 @@
     type="text/javascript"
     src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"
   ></script>
-  <script src="./market-chart.js" defer></script>
+  <script src="./market-chart.js"></script>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -156,12 +156,40 @@
       min-height: 390px;
       background: #060d1a;
       border: 1px solid #0d1525;
+      position: relative;
       overflow: hidden;
     }
-    #chartSvg {
+    #marketChart {
       width: 100%;
       height: 100%;
       display: block;
+    }
+    .marketChartStatus {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      background: rgba(6, 13, 26, 0.82);
+      color: #c5d0e8;
+      font-size: 13px;
+      text-align: center;
+      z-index: 2;
+    }
+    .marketChartStatus.visible {
+      display: flex;
+    }
+    .marketChartStatus.errorState {
+      color: #ffb4b4;
+    }
+    .marketDataSource {
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      color: #5a6e8a;
+      font-size: 11px;
+      z-index: 1;
     }
     .tabs {
       display: flex;
@@ -341,7 +369,7 @@
     let asset = "EUR/USD";
     let side = "BUY";
     let tab = "open";
-    let tf = "M5";
+    let tf = "5min";
     let chartType = "candles";
     let adminSection = "Dashboard";
     let selectedClientId = "WT-1001";
@@ -368,17 +396,16 @@
       ["EUR/USD", 1.0854, "Forex"],
       ["GBP/USD", 1.2687, "Forex"],
       ["USD/JPY", 151.34, "Forex"],
+      ["USD/CHF", 0.8950, "Forex"],
       ["XAU/USD", 3042.15, "Materias primas"],
-      ["XAG/USD", 27.55, "Materias primas"],
       ["BTC/USD", 84210, "Criptomonedas"],
       ["ETH/USD", 3120, "Criptomonedas"],
-      ["US30", 38200, "Índices"],
-      ["NAS100", 18200, "Índices"],
-      ["AAPL", 185, "Acciones CFD"],
-      ["TSLA", 210, "Acciones CFD"]
+      ["US500", 5200, "Indices"],
+      ["WTI", 78.2, "Materias primas"]
     ];
 
-    const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
+    const TIMEFRAMES = ["1min", "5min", "15min", "30min", "1h", "4h", "1day"];
+    const MARKET_HISTORY_ENDPOINT = "/api/market/history";
     const CHART_TYPES = [
       ["candles", "Velas japonesas"],
       ["line", "Línea"],
@@ -446,66 +473,48 @@
       "Auditoría"
     ];
 
-    const TICK_SPEED = {
-      M1: 3,
-      M5: 5,
-      M15: 8,
-      M30: 10,
-      H1: 12,
-      H4: 15,
-      D1: 18,
-      W1: 22
-    };
-
-    const VOLATILITY = {
-      M1: 0.0006,
-      M5: 0.001,
-      M15: 0.0015,
-      M30: 0.002,
-      H1: 0.003,
-      H4: 0.004,
-      D1: 0.006,
-      W1: 0.009
-    };
-
     let prices = {};
     let candles = {};
+    let marketChartInstance = null;
+    let marketHistoryAbort = null;
+    let marketHistoryRequestId = 0;
+    let marketChartLoading = false;
+    let marketChartError = "";
+    let marketChartMeta = null;
 
     function chartKey(symbol = asset, timeframe = tf) {
       return symbol + "_" + timeframe;
     }
 
+    function normalizeTimeframe(value) {
+      const legacy = {
+        M1: "1min",
+        M5: "5min",
+        M15: "15min",
+        M30: "30min",
+        H1: "1h",
+        H4: "4h",
+        D1: "1day"
+      };
+      const normalized = legacy[value] || value;
+      return TIMEFRAMES.includes(normalized) ? normalized : "5min";
+    }
+
     function initMarket() {
       ASSETS.forEach((item) => {
         const symbol = item[0];
-        const base = item[1];
-
-        if (!prices[symbol]) prices[symbol] = base;
-
-        TIMEFRAMES.forEach((timeframe) => {
-          const key = chartKey(symbol, timeframe);
-          if (!candles[key]) {
-            let price = base;
-            const arr = [];
-            const vol = VOLATILITY[timeframe];
-
-            for (let i = 0; i < 70; i++) {
-              const open = price;
-              const close = open + (Math.random() - 0.5) * base * vol;
-              const high = Math.max(open, close) + Math.random() * base * vol * 0.4;
-              const low = Math.min(open, close) - Math.random() * base * vol * 0.4;
-              arr.push({ open, high, low, close });
-              price = close;
-            }
-
-            candles[key] = arr;
-          }
-        });
+        if (!(symbol in prices)) prices[symbol] = null;
       });
     }
 
     function price() {
-      return prices[asset] || 1;
+      const current = Number(prices[asset]);
+      return Number.isFinite(current) && current > 0 ? current : 0;
+    }
+
+    function priceLabel(symbol = asset) {
+      const current = Number(prices[symbol]);
+      return Number.isFinite(current) && current > 0 ? fmt(current) : "--";
     }
 
     function fmt(value) {
@@ -651,7 +660,7 @@
           positions = saved.positions || [];
           closed = saved.closed || [];
           money = saved.money || [];
-          tf = saved.tf || "M5";
+          tf = normalizeTimeframe(saved.tf || "5min");
           chartType = saved.chartType || "candles";
         }
       } catch (error) {
@@ -705,7 +714,7 @@
       positions = Array.isArray(data.positions) ? data.positions : positions;
       closed = Array.isArray(data.closed) ? data.closed : closed;
       money = Array.isArray(data.money) ? data.money : money;
-      tf = data.tf || tf;
+      tf = normalizeTimeframe(data.tf || tf);
       chartType = data.chartType || chartType;
       adminClients = Array.isArray(data.adminClients) ? data.adminClients : adminClients;
       adminClients.forEach(ensureClientPortalFields);
@@ -1128,7 +1137,7 @@
           ip: "187.190.77.33",
           device: "Firefox / macOS",
           lastAccess: "Hoy 07:55",
-          history: ["Alta de cliente", "Deposito aprobado", "Operación NAS100 abierta"]
+          history: ["Alta de cliente", "Deposito aprobado", "Operación US500 abierta"]
         },
         {
           id: "WT-1004",
@@ -2433,15 +2442,16 @@
                   <div>
                     <b>${asset}</b>
                     <div style="color:#5a6e8a;font-size:11px">Motor de Trading · ${assetCategory(asset)} · TradingView Charts Library compatible</div>
-                    <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica: ${CHART_TYPES.find((item) => item[0] === chartType)?.[1] || "Velas japonesas"}</div>
+                    <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica: Velas japonesas reales</div>
                     <div class="tfbar" id="tfbar"></div>
-                    <div class="tfbar" id="chartTypeBar"></div>
                   </div>
-                  <div class="price">${fmt(price())}</div>
+                  <div class="price">${priceLabel()}</div>
                 </div>
 
                 <div class="chartWrap">
-                  <svg id="chartSvg" viewBox="0 0 1000 390" preserveAspectRatio="none"></svg>
+                  <div id="marketChart"></div>
+                  <div id="marketChartStatus" class="marketChartStatus"></div>
+                  <div id="marketDataSource" class="marketDataSource">Fuente: esperando datos reales</div>
                 </div>
               </div>
 
@@ -2469,7 +2479,7 @@
 
                 <br><br>
                 <label>Precio entrada</label>
-                <input id="entry" class="input" type="number" value="${price()}">
+                <input id="entry" class="input" type="number" value="${price() || ""}">
 
                 <br><br>
                 <label>Lotes</label>
@@ -2556,19 +2566,6 @@
         tfbar.appendChild(button);
       });
 
-      const chartTypeBar = $("chartTypeBar");
-      CHART_TYPES.forEach((type) => {
-        const button = document.createElement("button");
-        button.className = "tfbtn " + (type[0] === chartType ? "active" : "");
-        button.textContent = type[1];
-        button.onclick = () => {
-          chartType = type[0];
-          save();
-          render();
-        };
-        chartTypeBar.appendChild(button);
-      });
-
       const list = $("assets");
       let lastCategory = "";
       ASSETS.forEach((item) => {
@@ -2582,7 +2579,7 @@
         }
         const div = document.createElement("div");
         div.className = "item " + (item[0] === asset ? "active" : "");
-        div.innerHTML = `${item[0]}<br><small>${assetCategory(item[0])} · ${fmt(prices[item[0]] || item[1])}</small>`;
+        div.innerHTML = `${item[0]}<br><small>${assetCategory(item[0])} · ${priceLabel(item[0])}</small>`;
         div.onclick = () => {
           asset = item[0];
           render();
@@ -2591,7 +2588,7 @@
       });
 
       orderInfo();
-      drawChart();
+      loadMarketHistory();
       renderTabs();
     }
 
@@ -4336,29 +4333,6 @@
     function tick() {
       tickCount++;
 
-      ASSETS.forEach((item) => {
-        const symbol = item[0];
-        const current = prices[symbol];
-        const volatility = current > 1000 ? 0.0007 : current > 100 ? 0.00035 : 0.00012;
-        const next = Math.max(0.00001, current + (Math.random() - 0.5) * current * volatility);
-        prices[symbol] = next;
-
-        TIMEFRAMES.forEach((timeframe) => {
-          const arr = candles[chartKey(symbol, timeframe)];
-          if (!arr || !arr.length) return;
-
-          const last = arr[arr.length - 1];
-          last.close = next;
-          last.high = Math.max(last.high, next);
-          last.low = Math.min(last.low, next);
-
-          if (tickCount % TICK_SPEED[timeframe] === 0) {
-            arr.push({ open: last.close, high: next, low: next, close: next });
-            if (arr.length > 90) arr.shift();
-          }
-        });
-      });
-
       activatePendingOrders();
       updateFloatingPnl();
       if (positions.length && Date.now() - lastFloatingSaveAt > 5000) {
@@ -4368,79 +4342,107 @@
 
       if (page !== "login") {
         const priceNode = document.querySelector(".price");
-        if (priceNode) priceNode.textContent = fmt(price());
+        if (priceNode) priceNode.textContent = priceLabel();
         if (tab === "open") renderTabs();
-        drawChart();
       }
     }
 
-    function drawChart() {
-      const svg = $("chartSvg");
-      if (!svg) return;
+    function marketHistoryUrl(symbol = asset, interval = tf) {
+      const params = new URLSearchParams({ symbol, interval: normalizeTimeframe(interval) });
+      return MARKET_HISTORY_ENDPOINT + "?" + params.toString();
+    }
 
-      const data = candles[chartKey(asset, tf)];
-      if (!data || !data.length) return;
+    function setMarketChartStatus({ loading = marketChartLoading, error = marketChartError } = {}) {
+      marketChartLoading = loading;
+      marketChartError = error || "";
 
-      const W = 1000;
-      const H = 390;
-      const L = 58;
-      const R = 84;
-      const T = 16;
-      const B = 34;
-      const CW = W - L - R;
-      const CH = H - T - B;
-
-      const min = Math.min(...data.map((item) => item.low));
-      const max = Math.max(...data.map((item) => item.high));
-      const range = max - min || 1;
-      const y = (value) => T + CH - ((value - min) / range) * CH;
-      const step = CW / data.length;
-
-      let html = '<rect x="0" y="0" width="1000" height="390" fill="#060d1a"/>';
-
-      for (let i = 0; i <= 6; i++) {
-        const yy = T + (i * CH) / 6;
-        const label = max - (i * range) / 6;
-        html += `<line x1="${L}" y1="${yy}" x2="${W - R}" y2="${yy}" stroke="#111d30"/>`;
-        html += `<text x="${L - 6}" y="${yy + 4}" fill="#5a6e8a" font-size="11" text-anchor="end">${fmt(label)}</text>`;
+      const status = $("marketChartStatus");
+      if (status) {
+        status.className = "marketChartStatus" + ((loading || marketChartError) ? " visible" : "") + (marketChartError ? " errorState" : "");
+        status.textContent = loading ? "Cargando historico real..." : marketChartError;
       }
 
-      if (chartType === "line") {
-        const points = data.map((item, index) => `${L + index * step + step / 2},${y(item.close)}`).join(" ");
-        html += `<polyline points="${points}" fill="none" stroke="#63b3ed" stroke-width="2"/>`;
-        data.forEach((item, index) => {
-          const x = L + index * step + step / 2;
-          html += `<circle cx="${x}" cy="${y(item.close)}" r="1.8" fill="#63b3ed"/>`;
-        });
-      } else {
-        data.forEach((item, index) => {
-          const x = L + index * step + step / 2;
-          const bullish = item.close >= item.open;
-          const color = bullish ? "#00d4a0" : "#f05e5e";
-          const top = y(Math.max(item.open, item.close));
-          const bottom = y(Math.min(item.open, item.close));
-          const height = Math.max(bottom - top, 2);
-          const width = Math.max(step * 0.55, 3);
+      const source = $("marketDataSource");
+      if (source) {
+        source.textContent = marketChartMeta
+          ? `Fuente: ${marketChartMeta.provider} · ${marketChartMeta.symbol} · ${marketChartMeta.interval} · ${marketChartMeta.count} velas`
+          : "Fuente: esperando datos reales";
+      }
+    }
 
-          html += `<line x1="${x}" y1="${y(item.high)}" x2="${x}" y2="${y(item.low)}" stroke="${color}"/>`;
+    function destroyMarketChart() {
+      if (!marketChartInstance) return;
+      marketChartInstance.destroy();
+      marketChartInstance = null;
+    }
 
-          if (chartType === "bars") {
-            html += `<line x1="${x - width / 2}" y1="${y(item.open)}" x2="${x}" y2="${y(item.open)}" stroke="${color}"/>`;
-            html += `<line x1="${x}" y1="${y(item.close)}" x2="${x + width / 2}" y2="${y(item.close)}" stroke="${color}"/>`;
-          } else if (bullish) {
-            html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="none" stroke="${color}"/>`;
-          } else {
-            html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="${color}"/>`;
-          }
-        });
+    async function loadMarketHistory(symbol = asset, interval = tf) {
+      const container = $("marketChart");
+      if (!container) return;
+
+      const currentSymbol = symbol;
+      const currentInterval = normalizeTimeframe(interval);
+      tf = currentInterval;
+
+      if (!window.WebTradeMarketChart || typeof window.WebTradeMarketChart.createMarketChart !== "function") {
+        setMarketChartStatus({ loading: false, error: "Lightweight Charts no esta disponible." });
+        return;
       }
 
-      const currentY = y(price());
-      html += `<line x1="${L}" y1="${currentY}" x2="${W - R}" y2="${currentY}" stroke="#63b3ed" stroke-dasharray="5 5"/>`;
-      html += `<rect x="${W - R + 4}" y="${currentY - 11}" width="76" height="22" fill="#63b3ed"/>`;
-      html += `<text x="${W - R + 42}" y="${currentY + 4}" fill="#060d1a" font-size="11" font-weight="bold" text-anchor="middle">${fmt(price())}</text>`;
+      const requestId = ++marketHistoryRequestId;
+      if (marketHistoryAbort) marketHistoryAbort.abort();
+      marketHistoryAbort = new AbortController();
+      destroyMarketChart();
+      setMarketChartStatus({ loading: true, error: "" });
 
-      svg.innerHTML = html;
+      try {
+        const response = await fetch(marketHistoryUrl(currentSymbol, currentInterval), {
+          signal: marketHistoryAbort.signal,
+          headers: { Accept: "application/json" }
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || "No se pudo cargar historico de mercado.");
+        }
+        if (payload.provider !== "twelvedata") {
+          throw new Error("Proveedor de datos inesperado.");
+        }
+
+        const realCandles = window.WebTradeMarketChart.cleanCandles(payload.values);
+        if (!realCandles.length) {
+          throw new Error("La API no devolvio velas validas para este simbolo y temporalidad.");
+        }
+        if (requestId !== marketHistoryRequestId) return;
+
+        candles[chartKey(currentSymbol, currentInterval)] = realCandles;
+        prices[currentSymbol] = realCandles[realCandles.length - 1].close;
+        marketChartMeta = {
+          provider: payload.provider,
+          symbol: payload.symbol || currentSymbol,
+          interval: payload.interval || currentInterval,
+          count: realCandles.length
+        };
+
+        marketChartInstance = window.WebTradeMarketChart.createMarketChart({
+          container,
+          candles: realCandles,
+          height: container.clientHeight || 390
+        });
+
+        setMarketChartStatus({ loading: false, error: "" });
+
+        const priceNode = document.querySelector(".price");
+        if (priceNode) priceNode.textContent = priceLabel(currentSymbol);
+        orderInfo();
+        if (tab === "open") renderTabs();
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        if (requestId !== marketHistoryRequestId) return;
+        destroyMarketChart();
+        marketChartMeta = null;
+        setMarketChartStatus({ loading: false, error: error.message || "Error cargando datos reales." });
+      }
     }
 
     initMarket();
