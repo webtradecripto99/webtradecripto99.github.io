@@ -549,6 +549,14 @@
       return symbol + "_" + timeframe;
     }
 
+    function clearMarketCandlesForSymbol(symbol = asset, interval = tf) {
+      const nextKey = chartKey(symbol, interval);
+      Object.keys(candles).forEach((key) => {
+        if (key.startsWith(symbol + "_") && key !== nextKey) delete candles[key];
+      });
+      candles[nextKey] = [];
+    }
+
     function normalizeTimeframe(value) {
       const legacy = {
         M1: "1min",
@@ -561,6 +569,19 @@
       };
       const normalized = legacy[value] || value;
       return TIMEFRAMES.includes(normalized) ? normalized : "5min";
+    }
+
+    function selectTimeframe(nextTimeframe) {
+      const normalized = normalizeTimeframe(nextTimeframe);
+      if (normalized === tf) return;
+      stopMarketCandlePolling();
+      if (marketHistoryAbort) marketHistoryAbort.abort();
+      destroyMarketChart();
+      clearMarketCandlesForSymbol(asset, normalized);
+      marketChartMeta = null;
+      tf = normalized;
+      save();
+      render();
     }
 
     function initMarket() {
@@ -2632,9 +2653,7 @@
         button.className = "tfbtn " + (timeframe === tf ? "active" : "");
         button.textContent = timeframe;
         button.onclick = () => {
-          tf = timeframe;
-          save();
-          render();
+          selectTimeframe(timeframe);
         };
         tfbar.appendChild(button);
       });
@@ -4668,6 +4687,8 @@
       if (marketHistoryAbort) marketHistoryAbort.abort();
       marketHistoryAbort = new AbortController();
       destroyMarketChart();
+      clearMarketCandlesForSymbol(currentSymbol, currentInterval);
+      marketChartMeta = null;
       setMarketChartStatus({ loading: true, error: "" });
 
       try {
