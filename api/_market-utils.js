@@ -103,20 +103,45 @@ function cleanNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function unixSeconds(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 9999999999 ? Math.floor(value / 1000) : Math.floor(value);
+  }
+
+  const parsed = Date.parse(String(value || "").replace(" ", "T"));
+  return Number.isFinite(parsed) ? Math.floor(parsed / 1000) : null;
+}
+
+function normalizeTwelveDataCandles(data) {
+  if (!data || data.status === "error") {
+    const message = data?.message || "Twelve Data returned an error response.";
+    throw new Error(message);
+  }
+
+  if (!Array.isArray(data.values)) return [];
+
+  return data.values
+    .map((item) => {
+      const candle = {
+        time: unixSeconds(item.datetime || item.timestamp),
+        open: cleanNumber(item.open),
+        high: cleanNumber(item.high),
+        low: cleanNumber(item.low),
+        close: cleanNumber(item.close)
+      };
+
+      return Object.values(candle).every((value) => value !== null) ? candle : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.time - b.time);
+}
+
 function cleanHistory(data, symbol, interval) {
   return {
     provider: "twelvedata",
     symbol,
     interval,
-    values: Array.isArray(data.values)
-      ? data.values.map((item) => ({
-          time: item.datetime,
-          open: cleanNumber(item.open),
-          high: cleanNumber(item.high),
-          low: cleanNumber(item.low),
-          close: cleanNumber(item.close)
-        }))
-      : []
+    values: normalizeTwelveDataCandles(data)
   };
 }
 
@@ -144,6 +169,7 @@ module.exports = {
   cleanQuote,
   getApiKey,
   getQuery,
+  normalizeTwelveDataCandles,
   safeParam,
   sendJson,
   validateInterval,
