@@ -427,6 +427,7 @@
     let currentAdminUser = null;
     let sessionTimer = null;
     let tickCount = 0;
+    let idSequence = 0;
 
     let balance = 1250;
     let positions = [];
@@ -442,15 +443,15 @@
     let adminSecurity = null;
 
     const ASSETS = [
-      ["EUR/USD", 1.0854, "Forex"],
-      ["GBP/USD", 1.2687, "Forex"],
-      ["USD/JPY", 151.34, "Forex"],
-      ["USD/CHF", 0.8950, "Forex"],
-      ["XAU/USD", 3042.15, "Materias primas"],
-      ["BTC/USD", 84210, "Criptomonedas"],
-      ["ETH/USD", 3120, "Criptomonedas"],
-      ["US500", 5200, "Indices"],
-      ["WTI", 78.2, "Materias primas"]
+      ["EUR/USD", null, "Forex"],
+      ["GBP/USD", null, "Forex"],
+      ["USD/JPY", null, "Forex"],
+      ["USD/CHF", null, "Forex"],
+      ["XAU/USD", null, "Materias primas"],
+      ["BTC/USD", null, "Criptomonedas"],
+      ["ETH/USD", null, "Criptomonedas"],
+      ["US500", null, "Indices"],
+      ["WTI", null, "Materias primas"]
     ];
 
     const TIMEFRAMES = ["1min", "5min", "15min", "30min", "1h", "4h", "1day"];
@@ -569,6 +570,21 @@
       };
       const normalized = legacy[value] || value;
       return TIMEFRAMES.includes(normalized) ? normalized : "5min";
+    }
+
+    function numericId(prefix, digits) {
+      const min = 10 ** (digits - 1);
+      const span = 9 * min;
+      idSequence = (idSequence + 1) % span;
+      let value = (Date.now() + idSequence) % span;
+
+      if (window.crypto && typeof window.crypto.getRandomValues === "function") {
+        const buffer = new Uint32Array(1);
+        window.crypto.getRandomValues(buffer);
+        value = buffer[0] % span;
+      }
+
+      return prefix + String(min + value).padStart(digits, "0");
     }
 
     function selectTimeframe(nextTimeframe) {
@@ -1276,7 +1292,7 @@
     }
 
     function clientFormData() {
-      const id = $("clientId").value.trim() || "WT-" + Math.floor(1000 + Math.random() * 9000);
+      const id = $("clientId").value.trim() || numericId("WT-", 4);
       return {
         id,
         name: $("clientName").value.trim(),
@@ -1405,7 +1421,7 @@
       const existing = adminTradingAccounts.find((account) => account.client === client.name && account.type === type);
       if (existing) return existing;
       const account = {
-        id: "MT5-" + Math.floor(10000 + Math.random() * 90000),
+        id: numericId("MT5-", 5),
         client: client.name,
         type,
         active: "Activa",
@@ -1426,7 +1442,7 @@
     }
 
     function clientRegistrationData() {
-      const id = "WT-" + Math.floor(1000 + Math.random() * 9000);
+      const id = numericId("WT-", 4);
       const name = $("regName").value.trim();
       const email = $("regEmail").value.trim().toLowerCase();
       const phone = $("regPhone").value.trim();
@@ -1794,7 +1810,7 @@
 
     function tradingAccountFormData() {
       return {
-        id: $("accountId").value.trim() || "MT5-" + Math.floor(10000 + Math.random() * 90000),
+        id: $("accountId").value.trim() || numericId("MT5-", 5),
         client: $("accountClient").value.trim() || "Sin cliente",
         type: $("accountType").value,
         active: $("accountActive").value,
@@ -1881,7 +1897,7 @@
     }
 
     function depositFormData() {
-      const id = $("depositId").value.trim() || "DEP-" + Math.floor(1000 + Math.random() * 9000);
+      const id = $("depositId").value.trim() || numericId("DEP-", 4);
       return {
         id,
         client: $("depositClient").value.trim() || "Sin cliente",
@@ -1991,7 +2007,7 @@
     }
 
     function withdrawalFormData() {
-      const id = $("withdrawalId").value.trim() || "RET-" + Math.floor(1000 + Math.random() * 9000);
+      const id = $("withdrawalId").value.trim() || numericId("RET-", 4);
       return {
         id,
         client: $("withdrawalClient").value.trim() || "Sin cliente",
@@ -2099,7 +2115,7 @@
     function promotionFormData() {
       const type = $("promoType").value;
       const prefix = type === "Bono" ? "BON" : "CRE";
-      const id = $("promoId").value.trim() || prefix + "-" + Math.floor(1000 + Math.random() * 9000);
+      const id = $("promoId").value.trim() || numericId(prefix + "-", 4);
       return {
         id,
         client: $("promoClient").value.trim() || "Sin cliente",
@@ -3085,7 +3101,7 @@
 
         $("newClientBtn").onclick = () => {
           selectedClientId = "";
-          $("clientId").value = "WT-" + Math.floor(1000 + Math.random() * 9000);
+          $("clientId").value = numericId("WT-", 4);
           $("clientName").value = "";
           $("clientEmail").value = "";
           $("clientPhone").value = "";
@@ -3209,7 +3225,7 @@
 
         $("newAccountBtn").onclick = () => {
           selectedTradingAccountId = "";
-          $("accountId").value = "MT5-" + Math.floor(10000 + Math.random() * 90000);
+          $("accountId").value = numericId("MT5-", 5);
           $("accountClient").value = "";
           $("accountActive").value = "Activa";
           $("accountType").value = "Standard";
@@ -3305,7 +3321,7 @@
           </div>`;
 
         $("newDepositBtn").onclick = () => {
-          $("depositId").value = "DEP-" + Math.floor(1000 + Math.random() * 9000);
+          $("depositId").value = numericId("DEP-", 4);
           $("depositClient").value = "";
           $("depositAccount").value = "";
           $("depositAmount").value = "0";
@@ -3380,7 +3396,7 @@
           </div>`;
 
         $("newWithdrawalBtn").onclick = () => {
-          $("withdrawalId").value = "RET-" + Math.floor(1000 + Math.random() * 9000);
+          $("withdrawalId").value = numericId("RET-", 4);
           $("withdrawalClient").value = "";
           $("withdrawalAccount").value = "";
           $("withdrawalAmount").value = "0";
