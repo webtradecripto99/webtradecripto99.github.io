@@ -4,6 +4,8 @@ const {
   cleanHistory,
   getApiKey,
   getQuery,
+  logMarketError,
+  marketError,
   safeParam,
   sendJson,
   validateInterval,
@@ -39,5 +41,15 @@ module.exports = async function historyHandler(req, res) {
     return;
   }
 
-  sendJson(res, 200, cleanHistory(result.payload, symbol, interval));
+  try {
+    sendJson(res, 200, cleanHistory(result.payload, symbol, interval));
+  } catch (error) {
+    const payload = marketError(error.marketCode || "EMPTY_RESPONSE", error.message || "History normalization failed.", {
+      symbol,
+      interval,
+      ...(error.details || {})
+    });
+    logMarketError("history.cleanHistory", payload);
+    sendJson(res, 502, payload);
+  }
 };
