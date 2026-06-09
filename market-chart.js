@@ -32,6 +32,14 @@
       .sort((a, b) => a.time - b.time);
   }
 
+  function applyChartContainerLayout(container, height) {
+    const resolvedHeight = Number(height) > 0 ? Number(height) : 420;
+    container.style.width = container.style.width || "100%";
+    container.style.height = container.style.height || resolvedHeight + "px";
+    container.style.minHeight = container.style.minHeight || "320px";
+    container.style.position = container.style.position || "relative";
+  }
+
   function createCandlestickSeries(chart, LightweightCharts, options) {
     if (typeof chart.addSeries === "function" && LightweightCharts.CandlestickSeries) {
       return chart.addSeries(LightweightCharts.CandlestickSeries, options);
@@ -43,6 +51,7 @@
     const LightweightCharts = assertLightweightCharts();
     const container = normalizeContainer(props.container);
     if (!container) throw new Error("Market chart container was not found.");
+    applyChartContainerLayout(container, props.height);
 
     const chart = LightweightCharts.createChart(container, {
       width: container.clientWidth || 640,
