@@ -528,6 +528,9 @@
     let marketChartInstance = null;
     let marketHistoryAbort = null;
     let marketHistoryRequestId = 0;
+    let marketCandlePollTimer = null;
+    let marketCandlePollAbort = null;
+    let marketCandlePollKey = "";
     let marketChartLoading = false;
     let marketChartError = "";
     let marketChartMeta = null;
@@ -2438,11 +2441,13 @@
 
     function render() {
       if (page === "login") {
+        stopMarketCandlePolling();
         renderLogin();
         return;
       }
 
       if (page === "admin") {
+        stopMarketCandlePolling();
         renderAdmin();
         return;
       }
@@ -4415,8 +4420,9 @@
       }
     }
 
-    function marketHistoryUrl(symbol = asset, interval = tf) {
+    function marketHistoryUrl(symbol = asset, interval = tf, outputsize = "") {
       const params = new URLSearchParams({ symbol, interval: normalizeTimeframe(interval) });
+      if (outputsize) params.set("outputsize", String(outputsize));
       return MARKET_HISTORY_ENDPOINT + "?" + params.toString();
     }
 
@@ -4551,6 +4557,99 @@
       marketChartInstance = null;
     }
 
+    function stopMarketCandlePolling() {
+      if (marketCandlePollTimer) {
+        clearInterval(marketCandlePollTimer);
+        marketCandlePollTimer = null;
+      }
+      if (marketCandlePollAbort) {
+        marketCandlePollAbort.abort();
+        marketCandlePollAbort = null;
+      }
+      marketCandlePollKey = "";
+    }
+
+    function mergeMarketCandles(symbol, interval, nextCandles) {
+      const key = chartKey(symbol, interval);
+      const current = candles[key] || [];
+      const clean = window.WebTradeMarketChart.cleanCandles(nextCandles);
+      if (!clean.length) return;
+
+      clean.forEach((nextCandle) => {
+        const last = current[current.length - 1];
+        if (!last) {
+          current.push(nextCandle);
+          if (marketChartInstance) marketChartInstance.setData(current);
+          return;
+        }
+
+        if (nextCandle.time === last.time) {
+          current[current.length - 1] = nextCandle;
+          if (marketChartInstance) marketChartInstance.update(nextCandle);
+          return;
+        }
+
+        if (nextCandle.time > last.time) {
+          current.push(nextCandle);
+          if (current.length > 500) current.shift();
+          if (marketChartInstance) marketChartInstance.update(nextCandle);
+          return;
+        }
+
+        const existingIndex = current.findIndex((item) => item.time === nextCandle.time);
+        if (existingIndex >= 0) current[existingIndex] = nextCandle;
+      });
+
+      candles[key] = current;
+      prices[symbol] = current[current.length - 1].close;
+      if (marketChartMeta && marketChartMeta.symbol === symbol && marketChartMeta.interval === interval) {
+        marketChartMeta.count = current.length;
+        setMarketChartStatus({ loading: false, error: "" });
+      }
+      renderQuotePanel();
+      if (tab === "open") renderTabs();
+    }
+
+    async function pollMarketCandle(symbol = asset, interval = tf) {
+      const currentInterval = normalizeTimeframe(interval);
+      const key = chartKey(symbol, currentInterval);
+      if (page !== "trade" || key !== marketCandlePollKey) return;
+
+      if (marketCandlePollAbort) marketCandlePollAbort.abort();
+      marketCandlePollAbort = new AbortController();
+
+      try {
+        const response = await fetch(marketHistoryUrl(symbol, currentInterval, 3), {
+          signal: marketCandlePollAbort.signal,
+          headers: { Accept: "application/json" }
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || "No se pudo actualizar la vela actual.");
+        }
+        if (payload.provider !== "twelvedata") {
+          throw new Error("Proveedor de datos inesperado.");
+        }
+        if (key !== marketCandlePollKey) return;
+
+        mergeMarketCandles(symbol, currentInterval, payload.values);
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        if (key !== marketCandlePollKey) return;
+        setMarketChartStatus({ loading: false, error: error.message || "Error actualizando la vela actual." });
+      }
+    }
+
+    function startMarketCandlePolling(symbol = asset, interval = tf) {
+      const currentInterval = normalizeTimeframe(interval);
+      stopMarketCandlePolling();
+      marketCandlePollKey = chartKey(symbol, currentInterval);
+      marketCandlePollTimer = setInterval(() => {
+        pollMarketCandle(symbol, currentInterval);
+      }, 15000);
+    }
+
     async function loadMarketHistory(symbol = asset, interval = tf) {
       const container = $("marketChart");
       if (!container) return;
@@ -4565,6 +4664,7 @@
       }
 
       const requestId = ++marketHistoryRequestId;
+      stopMarketCandlePolling();
       if (marketHistoryAbort) marketHistoryAbort.abort();
       marketHistoryAbort = new AbortController();
       destroyMarketChart();
@@ -4606,6 +4706,7 @@
         });
 
         setMarketChartStatus({ loading: false, error: "" });
+        startMarketCandlePolling(currentSymbol, currentInterval);
 
         renderQuotePanel();
         orderInfo();
