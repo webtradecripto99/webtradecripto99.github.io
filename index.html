@@ -649,6 +649,7 @@
       money = Array.isArray(data.money) ? data.money : money;
       tf = data.tf || tf;
       adminClients = Array.isArray(data.adminClients) ? data.adminClients : adminClients;
+      adminClients.forEach(ensureClientPortalFields);
       adminTradingAccounts = Array.isArray(data.adminTradingAccounts) ? data.adminTradingAccounts : adminTradingAccounts;
       adminDeposits = Array.isArray(data.adminDeposits) ? data.adminDeposits : adminDeposits;
       adminWithdrawals = Array.isArray(data.adminWithdrawals) ? data.adminWithdrawals : adminWithdrawals;
@@ -974,6 +975,17 @@
         saveSession("admin");
         render();
       } else if (clientAccess) {
+        ensureClientPortalFields(clientAccess);
+        if (clientAccess.emailVerified !== "Sí") {
+          $("err").style.display = "block";
+          $("err").textContent = "Verifica tu correo antes de iniciar sesión.";
+          return;
+        }
+        if (clientAccess.clientTwoFactorEnabled === "Sí" && otp !== clientAccess.clientTwoFactorCode) {
+          $("err").style.display = "block";
+          $("err").textContent = "Código 2FA de cliente incorrecto.";
+          return;
+        }
         if (clientAccess.accessStatus !== "Habilitado" || clientAccess.portalAccess !== "Sí") {
           $("err").style.display = "block";
           $("err").textContent = "Acceso de cliente no habilitado. Revisa que esté Habilitado y con portal permitido.";
@@ -1089,11 +1101,22 @@
       } catch (error) {
         adminClients = defaultAdminClients();
       }
+      adminClients.forEach(ensureClientPortalFields);
     }
 
     function saveAdminClients() {
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
       queueCloudSave();
+    }
+
+    function ensureClientPortalFields(client) {
+      if (!client) return {};
+      client.emailVerified = client.emailVerified || (client.kyc === "Verificado" ? "Sí" : "No");
+      client.clientTwoFactorEnabled = client.clientTwoFactorEnabled || "No";
+      client.clientTwoFactorCode = client.clientTwoFactorCode || "000000";
+      client.recoveryCode = client.recoveryCode || "000000";
+      client.profileUpdatedAt = client.profileUpdatedAt || "Sin actualización";
+      return client;
     }
 
     function selectedClient() {
@@ -1125,7 +1148,12 @@
         crmNotes: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).crmNotes : "",
         nextFollowUp: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).nextFollowUp : "",
         contactHistory: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).contactHistory : ["Cliente creado"],
-        commercialTags: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).commercialTags : []
+        commercialTags: selectedClient()?.id === id ? ensureCrmFields(selectedClient()).commercialTags : [],
+        emailVerified: selectedClient()?.id === id ? ensureClientPortalFields(selectedClient()).emailVerified : "No",
+        clientTwoFactorEnabled: selectedClient()?.id === id ? ensureClientPortalFields(selectedClient()).clientTwoFactorEnabled : "No",
+        clientTwoFactorCode: selectedClient()?.id === id ? ensureClientPortalFields(selectedClient()).clientTwoFactorCode : "000000",
+        recoveryCode: selectedClient()?.id === id ? ensureClientPortalFields(selectedClient()).recoveryCode : "000000",
+        profileUpdatedAt: selectedClient()?.id === id ? ensureClientPortalFields(selectedClient()).profileUpdatedAt : "Sin actualización"
       };
     }
 
@@ -1218,6 +1246,204 @@
 
     window.saveCrmClient = saveCrmClient;
     window.addCrmContact = addCrmContact;
+
+    function createClientTradingAccount(client) {
+      if (!client) return null;
+      if (!adminTradingAccounts.length) loadTradingAccounts();
+      const existing = adminTradingAccounts.find((account) => account.client === client.name);
+      if (existing) return existing;
+      const account = {
+        id: "MT5-" + Math.floor(10000 + Math.random() * 90000),
+        client: client.name,
+        type: "Demo",
+        active: "Activa",
+        leverage: "1:500",
+        balance: moneyValue(client.balance),
+        equity: moneyValue(client.balance),
+        usedMargin: 0,
+        freeMargin: moneyValue(client.balance),
+        blockOpen: "No",
+        closeOnly: "No",
+        lastUpdate: new Date().toLocaleString()
+      };
+      adminTradingAccounts.unshift(account);
+      saveTradingAccounts();
+      return account;
+    }
+
+    function clientRegistrationData() {
+      const id = "WT-" + Math.floor(1000 + Math.random() * 9000);
+      const name = $("regName").value.trim();
+      const email = $("regEmail").value.trim().toLowerCase();
+      const phone = $("regPhone").value.trim();
+      const accessUser = $("regUser").value.trim().toLowerCase();
+      const accessPass = $("regPass").value.trim();
+      return {
+        id,
+        name,
+        email,
+        phone,
+        status: "Pendiente",
+        kyc: "No iniciado",
+        advisor: "Sin asignar",
+        balance: "$0.00",
+        risk: "Riesgo bajo",
+        accessUser,
+        accessPass,
+        accessStatus: "Pendiente activación",
+        portalAccess: "Sí",
+        forcePasswordChange: "No",
+        ip: "Sin registro",
+        device: "Registro web",
+        lastAccess: "Sin acceso",
+        history: ["Registro de usuario - " + new Date().toLocaleString(), "Verificación de correo pendiente"],
+        crmStage: "Nuevo",
+        crmNotes: "Registro web pendiente de verificación",
+        nextFollowUp: "",
+        contactHistory: ["Registro web - " + new Date().toLocaleString()],
+        commercialTags: ["Registro web"],
+        emailVerified: "No",
+        clientTwoFactorEnabled: "No",
+        clientTwoFactorCode: "000000",
+        recoveryCode: "000000",
+        profileUpdatedAt: "Sin actualización"
+      };
+    }
+
+    async function submitClientRegistration() {
+      if (!adminClients.length) loadAdminClients();
+      const data = clientRegistrationData();
+      if (!data.name || !data.email || !data.accessUser || !data.accessPass) {
+        $("regMsg").textContent = "Nombre, email, usuario y contraseña son obligatorios.";
+        $("regMsg").style.display = "block";
+        return;
+      }
+      const exists = adminClients.some((client) =>
+        String(client.email || "").toLowerCase() === data.email ||
+        String(client.accessUser || "").toLowerCase() === data.accessUser
+      );
+      if (exists) {
+        $("regMsg").textContent = "Ya existe un cliente con ese correo o usuario.";
+        $("regMsg").style.display = "block";
+        return;
+      }
+      adminClients.unshift(data);
+      createClientTradingAccount(data);
+      saveAdminClients();
+      await saveCloudState();
+      $("regMsg").textContent = "Registro de usuario creado. Usa el código 000000 para verificar correo.";
+      $("regMsg").style.display = "block";
+    }
+
+    function findClientByAccessOrEmail(value) {
+      const needle = String(value || "").trim().toLowerCase();
+      if (!needle) return null;
+      if (!adminClients.length) loadAdminClients();
+      return adminClients.find((client) =>
+        String(client.accessUser || "").toLowerCase() === needle ||
+        String(client.email || "").toLowerCase() === needle
+      ) || null;
+    }
+
+    async function verifyClientEmail() {
+      const client = findClientByAccessOrEmail($("verifyUser").value);
+      const code = $("verifyCode").value.trim();
+      if (!client || code !== "000000") {
+        $("verifyMsg").textContent = "Usuario/correo o código de verificación inválido.";
+        $("verifyMsg").style.display = "block";
+        return;
+      }
+      ensureClientPortalFields(client);
+      client.emailVerified = "Sí";
+      client.accessStatus = "Habilitado";
+      client.history = ["Correo verificado - " + new Date().toLocaleString(), ...(client.history || [])];
+      saveAdminClients();
+      await saveCloudState();
+      $("verifyMsg").textContent = "Correo verificado. Ya puedes iniciar sesión como cliente.";
+      $("verifyMsg").style.display = "block";
+    }
+
+    async function recoverClientPassword() {
+      const client = findClientByAccessOrEmail($("recoverUser").value);
+      const code = $("recoverCode").value.trim();
+      const nextPass = $("recoverPass").value.trim();
+      if (!client || code !== ensureClientPortalFields(client).recoveryCode || !nextPass) {
+        $("recoverMsg").textContent = "Datos inválidos. Código de recuperación demo: 000000.";
+        $("recoverMsg").style.display = "block";
+        return;
+      }
+      client.accessPass = nextPass;
+      client.forcePasswordChange = "No";
+      client.history = ["Recuperación de contraseña - " + new Date().toLocaleString(), ...(client.history || [])];
+      saveAdminClients();
+      await saveCloudState();
+      $("recoverMsg").textContent = "Contraseña actualizada. Inicia sesión con tu nueva clave.";
+      $("recoverMsg").style.display = "block";
+    }
+
+    function renderRegister() {
+      app.innerHTML = `
+        <div class="login">
+          <div class="panel" style="width:430px">
+            <h2 style="color:#00d4a0;text-align:center">Registro de usuario</h2>
+            <input id="regName" class="input" placeholder="Nombre completo">
+            <br><br>
+            <input id="regEmail" class="input" type="email" placeholder="Correo electrónico">
+            <br><br>
+            <input id="regPhone" class="input" placeholder="Teléfono">
+            <br><br>
+            <input id="regUser" class="input" placeholder="Usuario">
+            <br><br>
+            <input id="regPass" class="input" type="password" placeholder="Contraseña">
+            <div id="regMsg" class="warn" style="display:none"></div>
+            <br>
+            <button id="regSubmit" class="btn green" style="width:100%;padding:12px">CREAR REGISTRO</button>
+            <button id="regVerify" class="btn blue" style="width:100%;padding:12px;margin-top:8px">VERIFICAR CORREO</button>
+            <button id="regBack" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">VOLVER AL LOGIN</button>
+          </div>
+        </div>`;
+      $("regSubmit").onclick = submitClientRegistration;
+      $("regVerify").onclick = renderEmailVerification;
+      $("regBack").onclick = renderLogin;
+    }
+
+    function renderEmailVerification() {
+      app.innerHTML = `
+        <div class="login">
+          <div class="panel" style="width:410px">
+            <h2 style="color:#63b3ed;text-align:center">Verificación de correo</h2>
+            <input id="verifyUser" class="input" placeholder="Usuario o correo">
+            <br><br>
+            <input id="verifyCode" class="input" placeholder="Código de verificación">
+            <div id="verifyMsg" class="warn" style="display:none"></div>
+            <br>
+            <button id="verifySubmit" class="btn green" style="width:100%;padding:12px">VERIFICAR CORREO</button>
+            <button id="verifyBack" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">VOLVER AL LOGIN</button>
+          </div>
+        </div>`;
+      $("verifySubmit").onclick = verifyClientEmail;
+      $("verifyBack").onclick = renderLogin;
+    }
+
+    function renderRecovery() {
+      app.innerHTML = `
+        <div class="login">
+          <div class="panel" style="width:410px">
+            <h2 style="color:#f6ad55;text-align:center">Recuperación de contraseña</h2>
+            <input id="recoverUser" class="input" placeholder="Usuario o correo">
+            <br><br>
+            <input id="recoverCode" class="input" placeholder="Código de recuperación">
+            <br><br>
+            <input id="recoverPass" class="input" type="password" placeholder="Nueva contraseña">
+            <div id="recoverMsg" class="warn" style="display:none"></div>
+            <br>
+            <button id="recoverSubmit" class="btn green" style="width:100%;padding:12px">ACTUALIZAR CONTRASEÑA</button>
+            <button id="recoverBack" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">VOLVER AL LOGIN</button>
+          </div>
+        </div>`;
+      $("recoverSubmit").onclick = recoverClientPassword;
+      $("recoverBack").onclick = renderLogin;
+    }
 
     function selectClient(id) {
       selectedClientId = id;
@@ -2048,19 +2274,25 @@
             <br><br>
             <input id="p" class="input" type="password" placeholder="Contraseña">
             <br><br>
-            <input id="otp" class="input" placeholder="Código 2FA admin">
+            <input id="otp" class="input" placeholder="Código 2FA admin / cliente">
             <div id="err" class="error" style="display:none">Credenciales incorrectas</div>
             <br>
             <button id="loginBtn" class="btn green" style="width:100%;padding:12px">ENTRAR</button>
             <button id="adminBtn" class="btn blue" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO ADMINISTRADOR</button>
             <button id="clientBtn" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">ENTRAR COMO CLIENTE</button>
-            <p style="font-size:11px;color:#5a6e8a;text-align:center">Admin: usuario independiente + código 2FA 000000 · Cliente: usuario y contraseña</p>
+            <button id="registerBtn" class="btn green" style="width:100%;padding:12px;margin-top:8px">REGISTRO DE USUARIO</button>
+            <button id="verifyEmailBtn" class="btn blue" style="width:100%;padding:12px;margin-top:8px">VERIFICACIÓN DE CORREO</button>
+            <button id="recoverBtn" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">RECUPERACIÓN DE CONTRASEÑA</button>
+            <p style="font-size:11px;color:#5a6e8a;text-align:center">Admin y cliente pueden usar 2FA. Código demo: 000000</p>
           </div>
         </div>`;
 
       $("loginBtn").onclick = login;
       $("adminBtn").onclick = () => login("admin");
       $("clientBtn").onclick = () => login("cliente");
+      $("registerBtn").onclick = renderRegister;
+      $("verifyEmailBtn").onclick = renderEmailVerification;
+      $("recoverBtn").onclick = renderRecovery;
       $("p").onkeydown = (event) => {
         if (event.key === "Enter") login();
       };
@@ -2097,6 +2329,7 @@
             <div>
               <button id="depBtn" class="btn green">+$ DEPÓSITO</button>
               <button id="retBtn" class="btn yellow">-$ RETIRO</button>
+              <button id="profileBtn" class="btn blue">PERFIL</button>
               <select id="tradeAccountSelect" class="input" style="margin-top:8px">
                 ${tradeAccounts.map((account) => `<option value="${account.id}" ${account.id === currentAccount?.id ? "selected" : ""}>${account.id} · ${account.type} · ${account.active}</option>`).join("")}
               </select>
@@ -2192,6 +2425,7 @@
       };
       $("depBtn").onclick = () => moneyForm("Depósito");
       $("retBtn").onclick = () => moneyForm("Retiro");
+      $("profileBtn").onclick = renderClientProfile;
       if ($("tradeAccountSelect")) {
         $("tradeAccountSelect").onchange = (event) => {
           const allowed = clientTradingAccounts().some((account) => account.id === event.target.value);
@@ -2586,6 +2820,14 @@
                   </select>
                 </div>
                 <div>
+                  <label>Verificación de correo</label>
+                  <input class="input" value="${ensureClientPortalFields(current).emailVerified}" disabled>
+                </div>
+                <div>
+                  <label>Autenticación de dos factores (2FA)</label>
+                  <input class="input" value="${ensureClientPortalFields(current).clientTwoFactorEnabled}" disabled>
+                </div>
+                <div>
                   <label>Permisos de portal</label>
                   <label><input id="clientPortalAccess" type="checkbox" ${current?.portalAccess !== "No" ? "checked" : ""}> Permitir acceso del cliente</label>
                 </div>
@@ -2616,11 +2858,13 @@
                   client.advisor,
                   client.accessUser || "-",
                   client.accessStatus || "-",
+                  ensureClientPortalFields(client).emailVerified,
+                  ensureClientPortalFields(client).clientTwoFactorEnabled,
                   client.portalAccess || "No",
                   client.balance,
                   client.risk
                 ]),
-                ["ID", "Cliente", "Estado", "KYC", "Asesor", "Usuario", "Acceso", "Portal", "Balance", "Riesgo"]
+                ["ID", "Cliente", "Estado", "KYC", "Asesor", "Usuario", "Acceso", "Correo", "2FA", "Portal", "Balance", "Riesgo"]
               )}
             </div>
             <div class="panel">
@@ -2633,6 +2877,8 @@
                 <div class="detailRow"><span>Usuario acceso</span><b>${current?.accessUser || "-"}</b></div>
                 <div class="detailRow"><span>Contraseña</span><b>${current?.accessPass || "-"}</b></div>
                 <div class="detailRow"><span>Estado acceso</span><b>${current?.accessStatus || "-"}</b></div>
+                <div class="detailRow"><span>Correo verificado</span><b>${ensureClientPortalFields(current).emailVerified}</b></div>
+                <div class="detailRow"><span>2FA cliente</span><b>${ensureClientPortalFields(current).clientTwoFactorEnabled}</b></div>
                 <div class="detailRow"><span>Acceso portal</span><b>${current?.portalAccess || "No"}</b></div>
                 <div class="detailRow"><span>Cambio contraseña</span><b>${current?.forcePasswordChange || "No"}</b></div>
                 <div class="detailRow"><span>IP</span><b>${current?.ip || "-"}</b></div>
@@ -3639,6 +3885,82 @@
         tab = "money";
         render();
       };
+    }
+
+    function renderClientProfile() {
+      const client = ensureClientPortalFields(loggedClient());
+      if (!client) {
+        page = "login";
+        render();
+        return;
+      }
+      app.innerHTML = `
+        <div class="app">
+          <div class="top">
+            <button id="profileBack" class="btn blue">VOLVER</button>
+            <b>Gestión de perfil</b>
+            <span class="metric"><small>Correo</small><b>${client.emailVerified === "Sí" ? "Verificado" : "Pendiente"}</b></span>
+            <span class="metric"><small>2FA</small><b>${client.clientTwoFactorEnabled === "Sí" ? "Activo" : "Inactivo"}</b></span>
+          </div>
+          <div class="login">
+            <div class="panel" style="width:520px">
+              <h3>Gestión de perfil</h3>
+              <div class="formGrid">
+                <div><label>Nombre</label><input id="profileName" class="input" value="${client.name || ""}"></div>
+                <div><label>Correo</label><input id="profileEmail" class="input" type="email" value="${client.email || ""}"></div>
+                <div><label>Teléfono</label><input id="profilePhone" class="input" value="${client.phone || ""}"></div>
+                <div><label>Usuario</label><input id="profileUser" class="input" value="${client.accessUser || ""}"></div>
+                <div><label>Nueva contraseña</label><input id="profilePass" class="input" type="password" placeholder="Dejar vacío para conservar"></div>
+                <div><label>Código 2FA</label><input id="profile2faCode" class="input" value="${client.clientTwoFactorCode || "000000"}"></div>
+                <div><label>Autenticación de dos factores (2FA)</label><label><input id="profile2faEnabled" type="checkbox" ${client.clientTwoFactorEnabled === "Sí" ? "checked" : ""}> Activar 2FA del cliente</label></div>
+                <div><label>Verificación de correo</label><b>${client.emailVerified === "Sí" ? "Correo verificado" : "Correo pendiente"}</b></div>
+              </div>
+              <div id="profileMsg" class="warn" style="display:none"></div>
+              <br>
+              <button id="profileSave" class="btn green" style="width:100%;padding:12px">GUARDAR PERFIL</button>
+              <button id="profileVerify" class="btn yellow" style="width:100%;padding:12px;margin-top:8px">VERIFICAR CORREO</button>
+            </div>
+          </div>
+        </div>`;
+      $("profileBack").onclick = render;
+      $("profileVerify").onclick = renderEmailVerification;
+      $("profileSave").onclick = saveClientProfile;
+    }
+
+    async function saveClientProfile() {
+      const client = ensureClientPortalFields(loggedClient());
+      if (!client) return;
+      const nextEmail = $("profileEmail").value.trim().toLowerCase();
+      const nextUser = $("profileUser").value.trim().toLowerCase();
+      const duplicate = adminClients.some((item) =>
+        item.id !== client.id && (
+          String(item.email || "").toLowerCase() === nextEmail ||
+          String(item.accessUser || "").toLowerCase() === nextUser
+        )
+      );
+      if (duplicate) {
+        $("profileMsg").textContent = "Ese correo o usuario ya pertenece a otro cliente.";
+        $("profileMsg").style.display = "block";
+        return;
+      }
+      const emailChanged = nextEmail !== String(client.email || "").toLowerCase();
+      client.name = $("profileName").value.trim() || client.name;
+      client.email = nextEmail || client.email;
+      client.phone = $("profilePhone").value.trim();
+      client.accessUser = nextUser || client.accessUser;
+      if ($("profilePass").value.trim()) client.accessPass = $("profilePass").value.trim();
+      client.clientTwoFactorEnabled = $("profile2faEnabled").checked ? "Sí" : "No";
+      client.clientTwoFactorCode = $("profile2faCode").value.trim() || "000000";
+      if (emailChanged) {
+        client.emailVerified = "No";
+        client.accessStatus = "Pendiente activación";
+      }
+      client.profileUpdatedAt = new Date().toLocaleString();
+      client.history = ["Gestión de perfil actualizada - " + client.profileUpdatedAt, ...(client.history || [])];
+      saveAdminClients();
+      await saveCloudState();
+      $("profileMsg").textContent = emailChanged ? "Perfil guardado. Verifica el nuevo correo con código 000000." : "Perfil guardado correctamente.";
+      $("profileMsg").style.display = "block";
     }
 
     function tick() {
