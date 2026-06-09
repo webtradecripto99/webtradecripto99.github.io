@@ -337,6 +337,7 @@
     let side = "BUY";
     let tab = "open";
     let tf = "M5";
+    let chartType = "candles";
     let adminSection = "Dashboard";
     let selectedClientId = "WT-1001";
     let selectedTradingAccountId = "MT5-50021";
@@ -359,20 +360,33 @@
     let adminSecurity = null;
 
     const ASSETS = [
-      ["EUR/USD", 1.0854],
-      ["GBP/USD", 1.2687],
-      ["USD/JPY", 151.34],
-      ["XAU/USD", 3042.15],
-      ["XAG/USD", 27.55],
-      ["BTC/USD", 84210],
-      ["ETH/USD", 3120],
-      ["US30", 38200],
-      ["NAS100", 18200],
-      ["AAPL", 185],
-      ["TSLA", 210]
+      ["EUR/USD", 1.0854, "Forex"],
+      ["GBP/USD", 1.2687, "Forex"],
+      ["USD/JPY", 151.34, "Forex"],
+      ["XAU/USD", 3042.15, "Materias primas"],
+      ["XAG/USD", 27.55, "Materias primas"],
+      ["BTC/USD", 84210, "Criptomonedas"],
+      ["ETH/USD", 3120, "Criptomonedas"],
+      ["US30", 38200, "Índices"],
+      ["NAS100", 18200, "Índices"],
+      ["AAPL", 185, "Acciones CFD"],
+      ["TSLA", 210, "Acciones CFD"]
     ];
 
     const TIMEFRAMES = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"];
+    const CHART_TYPES = [
+      ["candles", "Velas japonesas"],
+      ["line", "Línea"],
+      ["bars", "Barras"]
+    ];
+    const ORDER_TYPES = [
+      { value: "buy_market", label: "Buy Market", side: "BUY", status: "Abierta", pending: false },
+      { value: "sell_market", label: "Sell Market", side: "SELL", status: "Abierta", pending: false },
+      { value: "buy_limit", label: "Buy Limit", side: "BUY", status: "Pendiente", pending: true },
+      { value: "sell_limit", label: "Sell Limit", side: "SELL", status: "Pendiente", pending: true },
+      { value: "buy_stop", label: "Buy Stop", side: "BUY", status: "Pendiente", pending: true },
+      { value: "sell_stop", label: "Sell Stop", side: "SELL", status: "Pendiente", pending: true }
+    ];
 
     const ADVISORS = ["Sin asignar", "Laura Vega", "Mario Ruiz", "Sofia Nieto", "Diego Ramos"];
     const CLIENT_STATUSES = ["Activo", "Pendiente", "Bloqueado", "Suspendido"];
@@ -494,6 +508,7 @@
     }
 
     function totalPnl() {
+      activatePendingOrders();
       updateFloatingPnl();
       return scopedPositions().reduce((sum, item) => sum + (item.pnl || 0), 0);
     }
@@ -562,6 +577,25 @@
       return Number(lots || 0) * contractSize();
     }
 
+    function assetCategory(symbol = asset) {
+      const row = ASSETS.find((item) => item[0] === symbol);
+      return row?.[2] || "Instrumentos financieros";
+    }
+
+    function orderTypeMeta(value) {
+      return ORDER_TYPES.find((item) => item.value === value) || ORDER_TYPES[0];
+    }
+
+    function selectedOrderType() {
+      return orderTypeMeta($("otype")?.value || (side === "SELL" ? "sell_market" : "buy_market"));
+    }
+
+    function operationRiskMoney(lots, entry, sl, symbol = asset) {
+      const stop = Number(sl || 0);
+      if (!stop) return 0;
+      return Math.abs(Number(entry || 0) - stop) * Number(lots || 0) * contractSizeFor(symbol);
+    }
+
     function floatingPnl(position) {
       const current = prices[position.symbol] || position.open || 0;
       const direction = position.side === "SELL" ? -1 : 1;
@@ -575,6 +609,23 @@
       });
     }
 
+    function activatePendingOrders() {
+      positions.forEach((position) => {
+        if (position.status !== "Pendiente") return;
+        const current = prices[position.symbol] || position.open || 0;
+        const entry = Number(position.open || 0);
+        const type = String(position.orderType || "").toLowerCase();
+        const triggered =
+          (type.includes("buy limit") && current <= entry) ||
+          (type.includes("sell limit") && current >= entry) ||
+          (type.includes("buy stop") && current >= entry) ||
+          (type.includes("sell stop") && current <= entry);
+        if (!triggered) return;
+        position.status = "Abierta";
+        position.activatedAt = new Date().toLocaleString();
+      });
+    }
+
     function requiredMargin(lots, entryPrice) {
       return (units(lots) * Number(entryPrice || price())) / 2000;
     }
@@ -582,7 +633,7 @@
     function save() {
       localStorage.setItem(
         "webtrade_inline_v3",
-        JSON.stringify({ balance, positions, closed, money, tf })
+        JSON.stringify({ balance, positions, closed, money, tf, chartType })
       );
       queueCloudSave();
     }
@@ -596,6 +647,7 @@
           closed = saved.closed || [];
           money = saved.money || [];
           tf = saved.tf || "M5";
+          chartType = saved.chartType || "candles";
         }
       } catch (error) {
         console.warn("No se pudo cargar estado local", error);
@@ -628,6 +680,7 @@
         closed,
         money,
         tf,
+        chartType,
         adminClients,
         adminTradingAccounts,
         adminDeposits,
@@ -648,6 +701,7 @@
       closed = Array.isArray(data.closed) ? data.closed : closed;
       money = Array.isArray(data.money) ? data.money : money;
       tf = data.tf || tf;
+      chartType = data.chartType || chartType;
       adminClients = Array.isArray(data.adminClients) ? data.adminClients : adminClients;
       adminClients.forEach(ensureClientPortalFields);
       adminTradingAccounts = Array.isArray(data.adminTradingAccounts) ? data.adminTradingAccounts : adminTradingAccounts;
@@ -659,7 +713,7 @@
       adminSecurity = data.adminSecurity && typeof data.adminSecurity === "object" ? normalizeAdminSecurity(data.adminSecurity) : adminSecurity;
       normalizeAllOperations();
 
-      localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf }));
+      localStorage.setItem("webtrade_inline_v3", JSON.stringify({ balance, positions, closed, money, tf, chartType }));
       localStorage.setItem("webtrade_admin_clients_v1", JSON.stringify(adminClients));
       localStorage.setItem("webtrade_admin_trading_accounts_v1", JSON.stringify(adminTradingAccounts));
       localStorage.setItem("webtrade_admin_deposits_v1", JSON.stringify(adminDeposits));
@@ -2373,8 +2427,10 @@
                 <div class="chartHead">
                   <div>
                     <b>${asset}</b>
-                    <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica dinámica SVG</div>
+                    <div style="color:#5a6e8a;font-size:11px">Motor de Trading · ${assetCategory(asset)} · TradingView Charts Library compatible</div>
+                    <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica: ${CHART_TYPES.find((item) => item[0] === chartType)?.[1] || "Velas japonesas"}</div>
                     <div class="tfbar" id="tfbar"></div>
+                    <div class="tfbar" id="chartTypeBar"></div>
                   </div>
                   <div class="price">${fmt(price())}</div>
                 </div>
@@ -2403,8 +2459,7 @@
                 <br>
                 <label>Tipo de orden</label>
                 <select id="otype" class="input">
-                  <option value="market">Tiempo de mercado</option>
-                  <option value="pending">Cuando llegue a precio</option>
+                  ${ORDER_TYPES.map((item) => `<option value="${item.value}" ${(side === item.side && item.value.includes("market")) ? "selected" : ""}>${item.label}</option>`).join("")}
                 </select>
 
                 <br><br>
@@ -2423,10 +2478,14 @@
                 <label>Take Profit</label>
                 <input id="tp" class="input" type="number" placeholder="Opcional">
 
+                <br><br>
+                <label>Riesgo monetario</label>
+                <input id="riskMoney" class="input" value="$0.00" disabled>
+
                 <div id="oinfo" class="warn"></div>
                 <div id="oerr" class="error" style="display:none"></div>
 
-                <button id="execBtn" class="btn blue" style="width:100%;padding:10px">CONFIRMAR ${side}</button>
+                <button id="execBtn" class="btn blue" style="width:100%;padding:10px">ENVIAR ORDEN</button>
               </div>
             </div>
           </div>
@@ -2452,10 +2511,12 @@
       }
       $("buyBtn").onclick = () => {
         side = "BUY";
+        if ($("otype")) $("otype").value = "buy_market";
         render();
       };
       $("sellBtn").onclick = () => {
         side = "SELL";
+        if ($("otype")) $("otype").value = "sell_market";
         render();
       };
       $("execBtn").onclick = order;
@@ -2490,11 +2551,33 @@
         tfbar.appendChild(button);
       });
 
+      const chartTypeBar = $("chartTypeBar");
+      CHART_TYPES.forEach((type) => {
+        const button = document.createElement("button");
+        button.className = "tfbtn " + (type[0] === chartType ? "active" : "");
+        button.textContent = type[1];
+        button.onclick = () => {
+          chartType = type[0];
+          save();
+          render();
+        };
+        chartTypeBar.appendChild(button);
+      });
+
       const list = $("assets");
+      let lastCategory = "";
       ASSETS.forEach((item) => {
+        if (item[2] !== lastCategory) {
+          lastCategory = item[2];
+          const header = document.createElement("div");
+          header.className = "item";
+          header.style.cursor = "default";
+          header.innerHTML = `<b>${lastCategory}</b>`;
+          list.appendChild(header);
+        }
         const div = document.createElement("div");
         div.className = "item " + (item[0] === asset ? "active" : "");
-        div.innerHTML = `${item[0]}<br><small>${fmt(prices[item[0]] || item[1])}</small>`;
+        div.innerHTML = `${item[0]}<br><small>${assetCategory(item[0])} · ${fmt(prices[item[0]] || item[1])}</small>`;
         div.onclick = () => {
           asset = item[0];
           render();
@@ -3708,21 +3791,28 @@
       const slEl = $("sl");
       const tpEl = $("tp");
       const infoEl = $("oinfo");
+      const riskEl = $("riskMoney");
       if (!lotsEl || !typeEl || !entryEl || !infoEl) return;
 
+      const type = selectedOrderType();
+      side = type.side;
       const lots = Number(lotsEl.value || 0);
-      const entry = typeEl.value === "market" ? price() : Number(entryEl.value || price());
+      const entry = type.pending ? Number(entryEl.value || price()) : price();
       const margin = requiredMargin(lots, entry);
       const notional = units(lots) * entry;
+      const riskMoney = operationRiskMoney(lots, entry, slEl.value);
+      if (riskEl) riskEl.value = "$" + riskMoney.toFixed(2);
 
       infoEl.innerHTML = `
-        Tipo: ${typeEl.value === "market" ? "Mercado" : "Pendiente"}<br>
+        Tipo: ${type.label}<br>
         Activo: ${asset}<br>
-        Lado: ${side}<br>
+        Instrumento: ${assetCategory(asset)}<br>
+        Lado: ${type.side}<br>
         Lotes: ${lots}<br>
         Unidades: ${units(lots).toLocaleString()}<br>
         Entrada: ${fmt(entry)}<br>
         SL: ${slEl.value || "-"} · TP: ${tpEl.value || "-"}<br>
+        Riesgo monetario: $${riskMoney.toFixed(2)}<br>
         Margen 1:2000: $${margin.toFixed(2)}<br>
         Nocional: $${notional.toFixed(2)}
       `;
@@ -3736,13 +3826,36 @@
       const tpEl = $("tp");
       const errEl = $("oerr");
 
+      const type = selectedOrderType();
       const lots = Number(lotsEl.value);
-      const entry = typeEl.value === "market" ? price() : Number(entryEl.value || price());
+      const entry = type.pending ? Number(entryEl.value || price()) : price();
       const margin = requiredMargin(lots, entry);
+      const currentPrice = price();
 
       if (!lots || lots <= 0) {
         errEl.style.display = "block";
         errEl.textContent = "Volumen inválido";
+        return;
+      }
+
+      if (type.value === "buy_limit" && entry >= currentPrice) {
+        errEl.style.display = "block";
+        errEl.textContent = "Buy Limit requiere precio de entrada menor al precio actual.";
+        return;
+      }
+      if (type.value === "sell_limit" && entry <= currentPrice) {
+        errEl.style.display = "block";
+        errEl.textContent = "Sell Limit requiere precio de entrada mayor al precio actual.";
+        return;
+      }
+      if (type.value === "buy_stop" && entry <= currentPrice) {
+        errEl.style.display = "block";
+        errEl.textContent = "Buy Stop requiere precio de entrada mayor al precio actual.";
+        return;
+      }
+      if (type.value === "sell_stop" && entry >= currentPrice) {
+        errEl.style.display = "block";
+        errEl.textContent = "Sell Stop requiere precio de entrada menor al precio actual.";
         return;
       }
 
@@ -3771,14 +3884,15 @@
         clientId: client?.id || null,
         clientName: client?.name || tradingAccount?.client || "Sin cliente",
         symbol: asset,
-        side,
+        side: type.side,
         lots,
-        orderType: typeEl.value === "market" ? "Mercado" : "Pendiente",
-        status: typeEl.value === "market" ? "Abierta" : "Pendiente",
+        orderType: type.label,
+        status: type.status,
         open: entry,
         sl: slEl.value || null,
         tp: tpEl.value || null,
         margin,
+        riskMoney: operationRiskMoney(lots, entry, slEl.value),
         pnl: 0,
         time: new Date().toLocaleString()
       });
@@ -3811,20 +3925,25 @@
             item.sl || "-",
             item.tp || "-",
             "$" + item.margin.toFixed(2),
+            "$" + Number(item.riskMoney || operationRiskMoney(item.lots, item.open, item.sl, item.symbol)).toFixed(2),
             `<span style="color:${item.pnl >= 0 ? "#00d4a0" : "#f05e5e"}">$${item.pnl.toFixed(2)}</span>`,
-            `<button class="btn red" data-close="${item.id}">Cerrar</button>`
+            `<button class="btn yellow" data-edit-risk="${item.id}">Modificar SL / TP</button>
+             <button class="btn blue" data-partial-close="${item.id}">Cierre parcial</button>
+             <button class="btn red" data-close="${item.id}">Cierre total</button>`
           ]),
-          ["Cuenta", "Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "Precio actual", "SL", "TP", "Margen", "P/L flotante", ""]
+          ["Cuenta", "Símbolo", "Lado", "Lotes", "Tipo", "Estado", "Entrada", "Precio actual", "SL", "TP", "Margen requerido", "Riesgo monetario", "P/L flotante", "Gestión de posiciones"]
         );
       }
 
       if (tab === "closed") {
         $("tabClosed").classList.add("active");
         const rows = scopedClosed();
-        box.innerHTML = createTable(
-          rows.map((item) => [item.accountId || "-", item.symbol, item.side, item.lots, fmt(item.open), item.time]),
-          ["Cuenta", "Símbolo", "Lado", "Lotes", "Entrada", "Hora"]
-        );
+        box.innerHTML = `
+          <div class="item"><b>Historial de operaciones</b></div>
+          ${createTable(
+            rows.map((item) => [item.accountId || "-", item.symbol, item.side, item.lots, item.orderType || "-", fmt(item.open), item.sl || "-", item.tp || "-", "$" + Number(item.pnl || 0).toFixed(2), item.time]),
+            ["Cuenta", "Símbolo", "Lado", "Lotes", "Tipo", "Entrada", "SL", "TP", "Resultado", "Hora"]
+          )}`;
       }
 
       if (tab === "money") {
@@ -3851,6 +3970,12 @@
       box.querySelectorAll("[data-close]").forEach((button) => {
         button.onclick = () => closePosition(Number(button.dataset.close));
       });
+      box.querySelectorAll("[data-partial-close]").forEach((button) => {
+        button.onclick = () => partialClosePosition(Number(button.dataset.partialClose));
+      });
+      box.querySelectorAll("[data-edit-risk]").forEach((button) => {
+        button.onclick = () => modifyPositionRisk(Number(button.dataset.editRisk));
+      });
     }
 
     function createTable(rows, headers) {
@@ -3865,6 +3990,55 @@
         </table>`;
     }
 
+    function editablePosition(id) {
+      const account = currentTradingAccount();
+      return positions.find((item) => item.id === id && positionBelongsToAccount(item, account)) || null;
+    }
+
+    function modifyPositionRisk(id) {
+      const item = editablePosition(id);
+      if (!item) return;
+      const nextSl = prompt("Modificar SL:", item.sl || "");
+      if (nextSl === null) return;
+      const nextTp = prompt("Modificar TP:", item.tp || "");
+      if (nextTp === null) return;
+      item.sl = nextSl || null;
+      item.tp = nextTp || null;
+      item.riskMoney = operationRiskMoney(item.lots, item.open, item.sl, item.symbol);
+      item.lastUpdate = "Modificar SL / Modificar TP - " + new Date().toLocaleString();
+      save();
+      renderTabs();
+    }
+
+    function partialClosePosition(id) {
+      const item = editablePosition(id);
+      if (!item) return;
+      const closeLots = Number(prompt("Cierre parcial - lotes a cerrar:", Math.max(0.01, Number(item.lots || 0) / 2).toFixed(2)));
+      if (!closeLots || closeLots <= 0 || closeLots >= Number(item.lots || 0)) {
+        alert("Ingresa un lote mayor a 0 y menor al volumen abierto.");
+        return;
+      }
+      const ratio = closeLots / Number(item.lots || 1);
+      const realized = Number(floatingPnl({ ...item, lots: closeLots }).toFixed(2));
+      const closedMargin = Number((Number(item.margin || 0) * ratio).toFixed(2));
+      item.lots = Number((Number(item.lots || 0) - closeLots).toFixed(2));
+      item.margin = Number(Math.max(0, Number(item.margin || 0) - closedMargin).toFixed(2));
+      item.riskMoney = operationRiskMoney(item.lots, item.open, item.sl, item.symbol);
+      item.pnl = floatingPnl(item);
+      const closedItem = {
+        ...item,
+        lots: closeLots,
+        margin: closedMargin,
+        pnl: realized,
+        status: "Cierre parcial",
+        time: "Cierre parcial - " + new Date().toLocaleString()
+      };
+      closed.unshift(closedItem);
+      applyClosedPnlToTradingAccount(closedItem);
+      save();
+      renderTabs();
+    }
+
     function closePosition(id) {
       const account = currentTradingAccount();
       const index = positions.findIndex((item) => item.id === id && positionBelongsToAccount(item, account));
@@ -3872,7 +4046,7 @@
 
       const item = positions.splice(index, 1)[0];
       item.pnl = Number(floatingPnl(item).toFixed(2));
-      closed.unshift({ ...item, time: new Date().toLocaleString() });
+      closed.unshift({ ...item, status: "Cierre total", time: "Cierre total - " + new Date().toLocaleString() });
       applyClosedPnlToTradingAccount(item);
       save();
       tab = "closed";
@@ -4180,6 +4354,7 @@
         });
       });
 
+      activatePendingOrders();
       updateFloatingPnl();
       if (positions.length && Date.now() - lastFloatingSaveAt > 5000) {
         lastFloatingSaveAt = Date.now();
@@ -4225,23 +4400,35 @@
         html += `<text x="${L - 6}" y="${yy + 4}" fill="#5a6e8a" font-size="11" text-anchor="end">${fmt(label)}</text>`;
       }
 
-      data.forEach((item, index) => {
-        const x = L + index * step + step / 2;
-        const bullish = item.close >= item.open;
-        const color = bullish ? "#00d4a0" : "#f05e5e";
-        const top = y(Math.max(item.open, item.close));
-        const bottom = y(Math.min(item.open, item.close));
-        const height = Math.max(bottom - top, 2);
-        const width = Math.max(step * 0.55, 3);
+      if (chartType === "line") {
+        const points = data.map((item, index) => `${L + index * step + step / 2},${y(item.close)}`).join(" ");
+        html += `<polyline points="${points}" fill="none" stroke="#63b3ed" stroke-width="2"/>`;
+        data.forEach((item, index) => {
+          const x = L + index * step + step / 2;
+          html += `<circle cx="${x}" cy="${y(item.close)}" r="1.8" fill="#63b3ed"/>`;
+        });
+      } else {
+        data.forEach((item, index) => {
+          const x = L + index * step + step / 2;
+          const bullish = item.close >= item.open;
+          const color = bullish ? "#00d4a0" : "#f05e5e";
+          const top = y(Math.max(item.open, item.close));
+          const bottom = y(Math.min(item.open, item.close));
+          const height = Math.max(bottom - top, 2);
+          const width = Math.max(step * 0.55, 3);
 
-        html += `<line x1="${x}" y1="${y(item.high)}" x2="${x}" y2="${y(item.low)}" stroke="${color}"/>`;
+          html += `<line x1="${x}" y1="${y(item.high)}" x2="${x}" y2="${y(item.low)}" stroke="${color}"/>`;
 
-        if (bullish) {
-          html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="none" stroke="${color}"/>`;
-        } else {
-          html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="${color}"/>`;
-        }
-      });
+          if (chartType === "bars") {
+            html += `<line x1="${x - width / 2}" y1="${y(item.open)}" x2="${x}" y2="${y(item.open)}" stroke="${color}"/>`;
+            html += `<line x1="${x}" y1="${y(item.close)}" x2="${x + width / 2}" y2="${y(item.close)}" stroke="${color}"/>`;
+          } else if (bullish) {
+            html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="none" stroke="${color}"/>`;
+          } else {
+            html += `<rect x="${x - width / 2}" y="${top}" width="${width}" height="${height}" fill="${color}"/>`;
+          }
+        });
+      }
 
       const currentY = y(price());
       html += `<line x1="${L}" y1="${currentY}" x2="${W - R}" y2="${currentY}" stroke="#63b3ed" stroke-dasharray="5 5"/>`;
