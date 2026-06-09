@@ -4465,6 +4465,38 @@
       return MARKET_QUOTE_ENDPOINT + "?" + new URLSearchParams({ symbol }).toString();
     }
 
+    function marketUserMessage(payload, fallback) {
+      const messages = {
+        API_KEY_MISSING: "El servicio de mercado no esta configurado. Contacta a soporte.",
+        RATE_LIMIT: "El proveedor de mercado recibio demasiadas solicitudes. Intenta de nuevo en unos minutos.",
+        SYMBOL_NOT_ALLOWED: "Este simbolo no esta disponible para operar en este momento.",
+        SYMBOL_UNAVAILABLE: "No hay datos disponibles para este simbolo en este momento.",
+        INTERVAL_NOT_ALLOWED: "Esta temporalidad no esta disponible para este simbolo.",
+        INTERVAL_UNAVAILABLE: "No hay datos disponibles para esta temporalidad.",
+        NETWORK_ERROR: "No pudimos conectar con el proveedor de mercado. Revisa la conexion e intenta de nuevo.",
+        EMPTY_RESPONSE: "El proveedor no devolvio datos de mercado para esta consulta.",
+        MARKET_CLOSED: "El mercado parece estar cerrado o sin cotizacion reciente.",
+        PROVIDER_ERROR: "No pudimos cargar datos de mercado en este momento.",
+        PROVIDER_UNSUPPORTED: "El proveedor de datos de mercado no esta disponible."
+      };
+      return payload?.userMessage || messages[payload?.code] || fallback;
+    }
+
+    function marketDataError(payload, fallback, context) {
+      console.error("[market-data]", context, payload);
+      const error = new Error(marketUserMessage(payload, fallback));
+      error.payload = payload;
+      return error;
+    }
+
+    function logMarketDataError(context, error) {
+      console.error("[market-data]", context, {
+        message: error.message,
+        payload: error.payload || null,
+        stack: error.stack || null
+      });
+    }
+
     function formatQuotePercent(value) {
       const number = Number(value);
       if (!Number.isFinite(number)) return "--";
@@ -4528,15 +4560,15 @@
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.error || payload.message || "No se pudo cargar el precio actual.");
+          throw marketDataError(payload, "No pudimos cargar el precio actual.", "quote.response");
         }
         if (payload.provider !== "twelvedata") {
-          throw new Error("Proveedor de precio inesperado.");
+          throw marketDataError(payload, "El proveedor de precio no esta disponible.", "quote.provider");
         }
 
         const nextPrice = Number(payload.price);
         if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
-          throw new Error("La API no devolvio un precio actual valido.");
+          throw marketDataError(payload, "El proveedor no devolvio un precio actual para este simbolo.", "quote.empty");
         }
         if (requestId !== marketQuoteRequestId) return;
 
@@ -4555,6 +4587,7 @@
       } catch (error) {
         if (error.name === "AbortError") return;
         if (requestId !== marketQuoteRequestId) return;
+        if (!error.payload) logMarketDataError("quote.network", error);
         marketQuoteState = {
           ...marketQuoteState,
           symbol: currentSymbol,
@@ -4562,7 +4595,7 @@
           percentChange: null,
           updatedAt: null,
           status: "error",
-          error: error.message || "Error cargando precio actual."
+          error: marketUserMessage(error.payload, "No pudimos conectar con el servicio de precio actual.")
         };
         renderQuotePanel();
       }
@@ -4661,10 +4694,10 @@
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.error || payload.message || "No se pudo actualizar la vela actual.");
+          throw marketDataError(payload, "No pudimos actualizar la vela actual.", "candle.response");
         }
         if (payload.provider !== "twelvedata") {
-          throw new Error("Proveedor de datos inesperado.");
+          throw marketDataError(payload, "El proveedor de datos no esta disponible.", "candle.provider");
         }
         if (key !== marketCandlePollKey) return;
 
@@ -4672,7 +4705,8 @@
       } catch (error) {
         if (error.name === "AbortError") return;
         if (key !== marketCandlePollKey) return;
-        setMarketChartStatus({ loading: false, error: error.message || "Error actualizando la vela actual." });
+        if (!error.payload) logMarketDataError("candle.network", error);
+        setMarketChartStatus({ loading: false, error: marketUserMessage(error.payload, "No pudimos actualizar la vela actual.") });
       }
     }
 
@@ -4715,15 +4749,15 @@
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-          throw new Error(payload.error || payload.message || "No se pudo cargar historico de mercado.");
+          throw marketDataError(payload, "No pudimos cargar el historico de mercado.", "history.response");
         }
         if (payload.provider !== "twelvedata") {
-          throw new Error("Proveedor de datos inesperado.");
+          throw marketDataError(payload, "El proveedor de datos no esta disponible.", "history.provider");
         }
 
         const realCandles = window.WebTradeMarketChart.cleanCandles(payload.values);
         if (!realCandles.length) {
-          throw new Error("La API no devolvio velas validas para este simbolo y temporalidad.");
+          throw marketDataError(payload, "No hay velas disponibles para este simbolo y temporalidad.", "history.empty");
         }
         if (requestId !== marketHistoryRequestId) return;
 
@@ -4751,9 +4785,10 @@
       } catch (error) {
         if (error.name === "AbortError") return;
         if (requestId !== marketHistoryRequestId) return;
+        if (!error.payload) logMarketDataError("history.network", error);
         destroyMarketChart();
         marketChartMeta = null;
-        setMarketChartStatus({ loading: false, error: error.message || "Error cargando datos reales." });
+        setMarketChartStatus({ loading: false, error: marketUserMessage(error.payload, "No pudimos cargar datos reales de mercado.") });
       }
     }
 
