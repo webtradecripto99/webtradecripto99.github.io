@@ -151,6 +151,55 @@
       font-size: 22px;
       font-weight: bold;
     }
+    .quotePanel {
+      min-width: 190px;
+      padding: 10px 12px;
+      border: 1px solid #15253c;
+      background: #071322;
+      text-align: right;
+    }
+    .quoteTop {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .quoteSymbol {
+      color: #c5d0e8;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .quoteChange {
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .quoteChange.positive { color: #00d4a0; }
+    .quoteChange.negative { color: #f05e5e; }
+    .quoteChange.neutral { color: #5a6e8a; }
+    .quoteMeta {
+      margin-top: 4px;
+      color: #5a6e8a;
+      font-size: 11px;
+    }
+    .quoteStatus {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 6px;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .quoteStatus::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .quoteStatus.connected { color: #00d4a0; }
+    .quoteStatus.updating { color: #f6ad55; }
+    .quoteStatus.error { color: #f05e5e; }
     .chartWrap {
       flex: 1;
       min-height: 390px;
@@ -406,6 +455,7 @@
 
     const TIMEFRAMES = ["1min", "5min", "15min", "30min", "1h", "4h", "1day"];
     const MARKET_HISTORY_ENDPOINT = "/api/market/history";
+    const MARKET_QUOTE_ENDPOINT = "/api/market/quote";
     const CHART_TYPES = [
       ["candles", "Velas japonesas"],
       ["line", "Línea"],
@@ -481,6 +531,16 @@
     let marketChartLoading = false;
     let marketChartError = "";
     let marketChartMeta = null;
+    let marketQuoteAbort = null;
+    let marketQuoteRequestId = 0;
+    let marketQuoteState = {
+      symbol: asset,
+      price: null,
+      percentChange: null,
+      updatedAt: null,
+      status: "updating",
+      error: ""
+    };
 
     function chartKey(symbol = asset, timeframe = tf) {
       return symbol + "_" + timeframe;
@@ -2445,7 +2505,15 @@
                     <div style="color:#5a6e8a;font-size:11px">Temporalidad: ${tf} · Gráfica: Velas japonesas reales</div>
                     <div class="tfbar" id="tfbar"></div>
                   </div>
-                  <div class="price">${priceLabel()}</div>
+                  <div class="quotePanel">
+                    <div class="quoteTop">
+                      <span id="quoteSymbol" class="quoteSymbol">${asset}</span>
+                      <span id="quoteChange" class="quoteChange neutral">--</span>
+                    </div>
+                    <div id="quotePrice" class="price">${priceLabel()}</div>
+                    <div id="quoteTime" class="quoteMeta">Ultima actualizacion: --</div>
+                    <div id="quoteStatus" class="quoteStatus updating">actualizando</div>
+                  </div>
                 </div>
 
                 <div class="chartWrap">
@@ -2588,6 +2656,7 @@
       });
 
       orderInfo();
+      loadMarketQuote();
       loadMarketHistory();
       renderTabs();
     }
@@ -4341,8 +4410,7 @@
       }
 
       if (page !== "login") {
-        const priceNode = document.querySelector(".price");
-        if (priceNode) priceNode.textContent = priceLabel();
+        renderQuotePanel();
         if (tab === "open") renderTabs();
       }
     }
@@ -4350,6 +4418,113 @@
     function marketHistoryUrl(symbol = asset, interval = tf) {
       const params = new URLSearchParams({ symbol, interval: normalizeTimeframe(interval) });
       return MARKET_HISTORY_ENDPOINT + "?" + params.toString();
+    }
+
+    function marketQuoteUrl(symbol = asset) {
+      return MARKET_QUOTE_ENDPOINT + "?" + new URLSearchParams({ symbol }).toString();
+    }
+
+    function formatQuotePercent(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "--";
+      return (number > 0 ? "+" : "") + number.toFixed(2) + "%";
+    }
+
+    function quoteChangeClass(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number) || number === 0) return "neutral";
+      return number > 0 ? "positive" : "negative";
+    }
+
+    function formatQuoteTime(value) {
+      if (!value) return "--";
+      const parsed = typeof value === "number" ? new Date(value > 9999999999 ? value : value * 1000) : new Date(value);
+      if (Number.isNaN(parsed.getTime())) return String(value);
+      return parsed.toLocaleString();
+    }
+
+    function renderQuotePanel() {
+      const symbolNode = $("quoteSymbol");
+      const priceNode = $("quotePrice");
+      const changeNode = $("quoteChange");
+      const timeNode = $("quoteTime");
+      const statusNode = $("quoteStatus");
+
+      if (symbolNode) symbolNode.textContent = marketQuoteState.symbol || asset;
+      if (priceNode) priceNode.textContent = Number.isFinite(Number(marketQuoteState.price)) ? fmt(marketQuoteState.price) : "--";
+      if (changeNode) {
+        changeNode.textContent = formatQuotePercent(marketQuoteState.percentChange);
+        changeNode.className = "quoteChange " + quoteChangeClass(marketQuoteState.percentChange);
+      }
+      if (timeNode) timeNode.textContent = "Ultima actualizacion: " + formatQuoteTime(marketQuoteState.updatedAt);
+      if (statusNode) {
+        statusNode.className = "quoteStatus " + marketQuoteState.status;
+        const statusLabel = marketQuoteState.status === "connected" ? "conectado" : marketQuoteState.status;
+        statusNode.textContent = marketQuoteState.status === "error"
+          ? "error: " + (marketQuoteState.error || "sin conexion")
+          : statusLabel;
+      }
+    }
+
+    async function loadMarketQuote(symbol = asset) {
+      const currentSymbol = symbol;
+      const requestId = ++marketQuoteRequestId;
+      if (marketQuoteAbort) marketQuoteAbort.abort();
+      marketQuoteAbort = new AbortController();
+      marketQuoteState = {
+        ...marketQuoteState,
+        symbol: currentSymbol,
+        status: "updating",
+        error: ""
+      };
+      renderQuotePanel();
+
+      try {
+        const response = await fetch(marketQuoteUrl(currentSymbol), {
+          signal: marketQuoteAbort.signal,
+          headers: { Accept: "application/json" }
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          throw new Error(payload.error || payload.message || "No se pudo cargar el precio actual.");
+        }
+        if (payload.provider !== "twelvedata") {
+          throw new Error("Proveedor de precio inesperado.");
+        }
+
+        const nextPrice = Number(payload.price);
+        if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+          throw new Error("La API no devolvio un precio actual valido.");
+        }
+        if (requestId !== marketQuoteRequestId) return;
+
+        prices[currentSymbol] = nextPrice;
+        marketQuoteState = {
+          symbol: payload.symbol || currentSymbol,
+          price: nextPrice,
+          percentChange: Number.isFinite(Number(payload.percentChange)) ? Number(payload.percentChange) : null,
+          updatedAt: payload.timestamp || null,
+          status: "connected",
+          error: ""
+        };
+        renderQuotePanel();
+        orderInfo();
+        if (tab === "open") renderTabs();
+      } catch (error) {
+        if (error.name === "AbortError") return;
+        if (requestId !== marketQuoteRequestId) return;
+        marketQuoteState = {
+          ...marketQuoteState,
+          symbol: currentSymbol,
+          price: null,
+          percentChange: null,
+          updatedAt: null,
+          status: "error",
+          error: error.message || "Error cargando precio actual."
+        };
+        renderQuotePanel();
+      }
     }
 
     function setMarketChartStatus({ loading = marketChartLoading, error = marketChartError } = {}) {
@@ -4432,8 +4607,7 @@
 
         setMarketChartStatus({ loading: false, error: "" });
 
-        const priceNode = document.querySelector(".price");
-        if (priceNode) priceNode.textContent = priceLabel(currentSymbol);
+        renderQuotePanel();
         orderInfo();
         if (tab === "open") renderTabs();
       } catch (error) {
@@ -4454,6 +4628,9 @@
       render();
     });
     setInterval(tick, 1000);
+    setInterval(() => {
+      if (page === "trade") loadMarketQuote();
+    }, 30000);
     setInterval(() => {
       if (cloudDirty || positions.length) queueCloudSave(100);
     }, 15000);
