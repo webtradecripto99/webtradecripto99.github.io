@@ -4,6 +4,8 @@ const {
   cleanQuote,
   getApiKey,
   getQuery,
+  logMarketError,
+  marketError,
   safeParam,
   sendJson,
   validateProvider,
@@ -33,5 +35,16 @@ module.exports = async function quoteHandler(req, res) {
     return;
   }
 
-  sendJson(res, 200, cleanQuote(result.payload, symbol));
+  const quote = cleanQuote(result.payload, symbol);
+  if (!Number.isFinite(Number(quote.price)) || Number(quote.price) <= 0) {
+    const payload = marketError("EMPTY_RESPONSE", "Quote response did not include a valid price.", {
+      symbol,
+      timestamp: quote.timestamp || null
+    });
+    logMarketError("quote.cleanQuote", payload);
+    sendJson(res, 502, payload);
+    return;
+  }
+
+  sendJson(res, 200, quote);
 };
