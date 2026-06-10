@@ -4455,9 +4455,8 @@
       }
     }
 
-    function marketHistoryUrl(symbol = asset, interval = tf, outputsize = "") {
+    function marketHistoryUrl(symbol = asset, interval = tf) {
       const params = new URLSearchParams({ symbol, interval: normalizeTimeframe(interval) });
-      if (outputsize) params.set("outputsize", String(outputsize));
       return MARKET_HISTORY_ENDPOINT + "?" + params.toString();
     }
 
@@ -4581,6 +4580,7 @@
           status: "connected",
           error: ""
         };
+        updateLiveCandleFromQuote(currentSymbol, nextPrice, payload.timestamp);
         renderQuotePanel();
         orderInfo();
         if (tab === "open") renderTabs();
@@ -4597,8 +4597,42 @@
           status: "error",
           error: marketUserMessage(error.payload, "No pudimos conectar con el servicio de precio actual.")
         };
+        if (page === "trade" && chartKey(currentSymbol, normalizeTimeframe(tf)) === marketCandlePollKey) {
+          setMarketChartStatus({ loading: false, error: marketQuoteState.error });
+        }
         renderQuotePanel();
       }
+    }
+
+    function timeframeSeconds(interval = tf) {
+      const normalized = normalizeTimeframe(interval);
+      const seconds = {
+        "1min": 60,
+        "5min": 300,
+        "15min": 900,
+        "30min": 1800,
+        "1h": 3600,
+        "4h": 14400,
+        "1day": 86400
+      };
+      return seconds[normalized] || 300;
+    }
+
+    function quoteTimestampSeconds(value) {
+      if (!value) return Math.floor(Date.now() / 1000);
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return Math.floor(parsed > 9999999999 ? parsed / 1000 : parsed);
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? Math.floor(Date.now() / 1000) : Math.floor(date.getTime() / 1000);
+    }
+
+    function candleBucketTime(timestampSeconds, interval = tf) {
+      const size = timeframeSeconds(interval);
+      return Math.floor(timestampSeconds / size) * size;
+    }
+
+    function logOhlcSource(source, data) {
+      console.log("OHLC SOURCE:", source, data.length, data[0], data[data.length - 1]);
     }
 
     function setMarketChartStatus({ loading = marketChartLoading, error = marketChartError } = {}) {
@@ -4637,77 +4671,52 @@
       marketCandlePollKey = "";
     }
 
-    function mergeMarketCandles(symbol, interval, nextCandles) {
-      const key = chartKey(symbol, interval);
-      const current = candles[key] || [];
-      const clean = window.WebTradeMarketChart.cleanCandles(nextCandles);
-      if (!clean.length) return;
-
-      clean.forEach((nextCandle) => {
-        const last = current[current.length - 1];
-        if (!last) {
-          current.push(nextCandle);
-          if (marketChartInstance) marketChartInstance.setData(current);
-          return;
-        }
-
-        if (nextCandle.time === last.time) {
-          current[current.length - 1] = nextCandle;
-          if (marketChartInstance) marketChartInstance.update(nextCandle);
-          return;
-        }
-
-        if (nextCandle.time > last.time) {
-          current.push(nextCandle);
-          if (current.length > 500) current.shift();
-          if (marketChartInstance) marketChartInstance.update(nextCandle);
-          return;
-        }
-
-        const existingIndex = current.findIndex((item) => item.time === nextCandle.time);
-        if (existingIndex >= 0) current[existingIndex] = nextCandle;
-      });
-
-      candles[key] = current;
-      prices[symbol] = current[current.length - 1].close;
-      if (marketChartMeta && marketChartMeta.symbol === symbol && marketChartMeta.interval === interval) {
-        marketChartMeta.count = current.length;
-        setMarketChartStatus({ loading: false, error: "" });
-      }
-      renderQuotePanel();
-      if (tab === "open") renderTabs();
-    }
-
-    async function pollMarketCandle(symbol = asset, interval = tf) {
-      const currentInterval = normalizeTimeframe(interval);
+    function updateLiveCandleFromQuote(symbol, priceValue, timestamp) {
+      const currentInterval = normalizeTimeframe(tf);
       const key = chartKey(symbol, currentInterval);
       if (page !== "trade" || key !== marketCandlePollKey) return;
 
-      if (marketCandlePollAbort) marketCandlePollAbort.abort();
-      marketCandlePollAbort = new AbortController();
+      const current = candles[key] || [];
+      const last = current[current.length - 1];
+      const priceNumber = Number(priceValue);
+      if (!last || !Number.isFinite(priceNumber) || priceNumber <= 0) return;
 
-      try {
-        const response = await fetch(marketHistoryUrl(symbol, currentInterval, 3), {
-          signal: marketCandlePollAbort.signal,
-          headers: { Accept: "application/json" }
-        });
-        const payload = await response.json().catch(() => ({}));
+      const bucketTime = candleBucketTime(quoteTimestampSeconds(timestamp), currentInterval);
+      let nextCandle;
 
-        if (!response.ok) {
-          throw marketDataError(payload, "No pudimos actualizar la vela actual.", "candle.response");
-        }
-        if (payload.provider !== "twelvedata") {
-          throw marketDataError(payload, "El proveedor de datos no esta disponible.", "candle.provider");
-        }
-        if (key !== marketCandlePollKey) return;
-
-        mergeMarketCandles(symbol, currentInterval, payload.values);
-      } catch (error) {
-        if (error.name === "AbortError") return;
-        if (key !== marketCandlePollKey) return;
-        if (!error.payload) logMarketDataError("candle.network", error);
-        setMarketChartStatus({ loading: false, error: marketUserMessage(error.payload, "No pudimos actualizar la vela actual.") });
+      if (bucketTime <= last.time) {
+        nextCandle = {
+          ...last,
+          high: Math.max(Number(last.high), priceNumber),
+          low: Math.min(Number(last.low), priceNumber),
+          close: priceNumber
+        };
+        current[current.length - 1] = nextCandle;
+      } else {
+        nextCandle = {
+          time: bucketTime,
+          open: Number(last.close),
+          high: Math.max(Number(last.close), priceNumber),
+          low: Math.min(Number(last.close), priceNumber),
+          close: priceNumber
+        };
+        current.push(nextCandle);
+        if (current.length > 500) current.shift();
       }
+
+      candles[key] = current;
+      if (marketChartInstance) marketChartInstance.update(nextCandle);
+      if (marketChartMeta && marketChartMeta.symbol === symbol && marketChartMeta.interval === currentInterval) {
+        marketChartMeta.count = current.length;
+        setMarketChartStatus({ loading: false, error: "" });
+      }
+      logOhlcSource(marketQuoteUrl(symbol), current);
+    }
+
+    async function pollMarketQuoteForCandle(symbol = asset, interval = tf) {
+      const key = chartKey(symbol, interval);
+      if (page !== "trade" || key !== marketCandlePollKey) return;
+      await loadMarketQuote(symbol);
     }
 
     function startMarketCandlePolling(symbol = asset, interval = tf) {
@@ -4715,7 +4724,7 @@
       stopMarketCandlePolling();
       marketCandlePollKey = chartKey(symbol, currentInterval);
       marketCandlePollTimer = setInterval(() => {
-        pollMarketCandle(symbol, currentInterval);
+        pollMarketQuoteForCandle(symbol, currentInterval);
       }, 15000);
     }
 
@@ -4763,6 +4772,7 @@
 
         candles[chartKey(currentSymbol, currentInterval)] = realCandles;
         prices[currentSymbol] = realCandles[realCandles.length - 1].close;
+        logOhlcSource(marketHistoryUrl(currentSymbol, currentInterval), realCandles);
         marketChartMeta = {
           provider: payload.provider,
           symbol: payload.symbol || currentSymbol,
